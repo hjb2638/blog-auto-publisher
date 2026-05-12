@@ -1,0 +1,112 @@
+export type ArticleStatus =
+  | 'draft' | 'outline_generating' | 'outline_ready' | 'outline_approved'
+  | 'content_generating' | 'content_ready' | 'content_approved'
+  | 'image_searching' | 'images_ready' | 'final_approved'
+  | 'publishing' | 'published' | 'failed' | 'cancelled';
+
+export type ArticleMode = 'manual' | 'auto';
+
+export interface ArticleListItem {
+  id: string;
+  topic: string;
+  status: ArticleStatus;
+  mode: ArticleMode;
+  wpPostUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Article {
+  id: string;
+  topic: string;
+  requirements: string | null;
+  mode: ArticleMode;
+  status: ArticleStatus;
+  outline: Outline | null;
+  content: ArticleContent | null;
+  images: ArticleImage[] | null;
+  fullHtml: string | null;
+  progress: Progress | null;
+  wpPostId: number | null;
+  wpPostUrl: string | null;
+  wpSlug: string | null;
+  errorMessage: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Outline {
+  title: string;
+  metaDescription: string;
+  sections: OutlineSection[];
+  seoKeywords: string[];
+  category: string;
+  tags: string[];
+}
+
+export interface OutlineSection {
+  heading: string;
+  slug: string;
+  keyPoints: string[];
+  estimatedWords: number;
+  includeCodeExample: boolean;
+}
+
+export interface ArticleContent {
+  sections: ContentSection[];
+  fullHtml: string;
+  totalWordCount: number;
+}
+
+export interface ContentSection {
+  heading: string;
+  slug: string;
+  html: string;
+  wordCount: number;
+}
+
+export interface ArticleImage {
+  id: string;
+  url: string;
+  altText: string;
+  sectionSlug: string;
+  position: string;
+  source: string;
+  sourceUrl: string;
+  photographer: string;
+}
+
+export interface Progress {
+  stage: string;
+  currentSection: number;
+  totalSections: number;
+  heading: string;
+}
+
+export interface ApiEnvelope<T> {
+  success: boolean;
+  data: T;
+  meta?: PaginationMeta;
+  error?: string;
+  detail?: string;
+}
+
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
+export interface CreateArticleRequest {
+  topic: string;
+  requirements?: string;
+  mode: ArticleMode;
+}
+
+export interface PublishRequest {
+  title?: string;
+  slug?: string;
+  status?: string;
+}

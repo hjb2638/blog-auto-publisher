@@ -1,0 +1,52 @@
+import json
+import re
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.article import Article
+from app.prompts.outline import OUTLINE_PROMPT_TEMPLATE
+from app.services.article_service import is_auto_mode, mark_failed, update_status
+from app.services.llm_service import llm_service
+from app.services.stream_service import stream_manager
+from app.utils.logger import logger
+
+
+def _slugify(heading: str) -> str:
+    slug = re.sub(r'[^\w\s-]', '', heading.lower())
+    slug = re.sub(r'[-\s]+', '-', slug).strip('-')
+    return slug or "section"
+
+
+async def generate_outline(db: AsyncSession, article: Article) -> Article:
+    article = await update_status(db, article, "outline_generating")
+    await stream_manager.send_status(article.id, "outline_generating")
+
+    prompt = OUTLINE_PROMPT_TEMPLATE.format(
+        topic=article.topic,
+        requirements=article.requirements or "No specific requirements.",
+        language="Chinese" if any('一' <= c <= '鿿' for c in article.topic) else "English",
+    )
+
+    try:
+        result = await llm_service.generate_json(prompt)
+        outline = result["parsed"]
+
+        for section in outline.get("sections", []):
+            if "slug" not in section or not section["slug"]:
+                section["slug"] = _slugify(section.get("heading", f"section-{uuid.uuid4().hex[:8]}"))
+
+        article.outline = outline
+        article = await update_status(db, article, "outline_ready")
+        await stream_manager.send_status(article.id, "outline_ready")
+
+        if await is_auto_mode(article):
+            article = await update_status(db, article, "outline_approved")
+            await stream_manager.send_status(article.id, "outline_approved")
+
+        return article
+
+    except Exception as e:
+        logger.error("Outline generation failed: %s", str(e))
+        await stream_manager.send_error(article.id, str(e))
+        return await mark_failed(db, article, "outline", str(e))

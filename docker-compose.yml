@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blog-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://bojinhu:bojinhu@db:5432/blog_db"
+      DATABASE_URL_SYNC: "postgresql://bojinhu:bojinhu@db:5432/blog_db"
+      LLM_BASE_URL: "http://222.30.145.21:8081/v1"
+      LLM_MODEL: "deepseek"
+      LLM_MAX_TOKENS: "4096"
+      LLM_TEMPERATURE: "0.7"
+      LLM_TIMEOUT: "120"
+      WP_API_URL: "https://www.bojinhu.xyz/index.php/wp-json"
+      WP_USERNAME: "${WP_USERNAME:-bojinhu}"
+      WP_APP_PASSWORD: "${WP_APP_PASSWORD}"
+      UNSPLASH_ACCESS_KEY: "${UNSPLASH_ACCESS_KEY:-}"
+      PEXELS_API_KEY: "${PEXELS_API_KEY:-}"
+      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      DEBUG: "${DEBUG:-false}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: blog-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: "http://localhost:8000/api/v1"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  db:
+    image: postgres:16-alpine
+    container_name: blog-db
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: "bojinhu"
+      POSTGRES_PASSWORD: "bojinhu"
+      POSTGRES_DB: "blog_db"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bojinhu -d blog_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+    name: blog_pgdata
