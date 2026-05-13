@@ -12,11 +12,14 @@ from app.schemas.article import (
     CreateArticleRequest,
     PublishRequest,
     RegenerateRequest,
+    WPCategory,
+    WPTag,
 )
 from app.services import article_service as svc
-from app.services.content_service import generate_content, regenerate_sections
+from app.services.content_service import generate_content, regenerate_sections, revise_sections
 from app.services.image_service import search_and_insert_images
-from app.services.outline_service import generate_outline
+from app.services.outline_service import generate_outline, revise_outline
+from app.services.taxonomy_service import match_or_create_taxonomy
 from app.services.wordpress_service import wordpress_service
 from app.utils.logger import logger
 
@@ -84,6 +87,12 @@ async def approve_outline(
 
     if body.regenerate:
         article = await generate_outline(db, article)
+    elif body.revision_prompt:
+        if body.title and article.outline:
+            article.outline["title"] = body.title
+        if body.sections and article.outline:
+            article.outline["sections"] = [s.model_dump() for s in body.sections]
+        article = await revise_outline(db, article, body.revision_prompt)
     else:
         if body.title and article.outline:
             article.outline["title"] = body.title
@@ -115,7 +124,10 @@ async def approve_content(
                 s["html"] = body.section_edits[slug]
         article.content["sections"] = sections
 
-    if body.regenerate_sections:
+    if body.revision_prompt:
+        slugs = body.regenerate_sections or []
+        article = await revise_sections(db, article, slugs, body.revision_prompt)
+    elif body.regenerate_sections:
         article = await regenerate_sections(db, article, body.regenerate_sections)
     else:
         article = await svc.update_status(db, article, "content_approved")
@@ -162,13 +174,38 @@ async def publish_article(
         content = article.content.get("full_html", "") if article.content else ""
         slug = body.slug or None
 
+        category_id = body.category_id
+        tag_ids = body.tag_ids
+
+        outline = article.outline or {}
+
+        if category_id is None and outline.get("category"):
+            matched_cat, _ = await match_or_create_taxonomy(
+                wordpress_service,
+                outline["category"],
+                None,
+                auto_create=body.auto_create_taxonomy,
+            )
+            if matched_cat is not None:
+                category_id = matched_cat
+
+        if tag_ids is None and outline.get("tags"):
+            _, matched_tags = await match_or_create_taxonomy(
+                wordpress_service,
+                None,
+                outline["tags"],
+                auto_create=body.auto_create_taxonomy,
+            )
+            if matched_tags:
+                tag_ids = matched_tags
+
         wp_post = await wordpress_service.create_post(
             title=title,
             content=content,
             slug=slug,
             status=body.status,
-            category_id=body.category_id,
-            tag_ids=body.tag_ids,
+            category_id=category_id,
+            tag_ids=tag_ids,
         )
 
         article.wp_post_id = wp_post["id"]
@@ -210,6 +247,30 @@ async def regenerate_article(
     await db.commit()
     await db.refresh(article)
     return {"success": True, "data": svc.article_to_detail(article)}
+
+
+@router.get("/wordpress/categories")
+async def get_wp_categories():
+    try:
+        categories = await wordpress_service.get_categories()
+        return {
+            "success": True,
+            "data": [{"id": c["id"], "name": c["name"], "slug": c["slug"], "count": c.get("count", 0)} for c in categories],
+        }
+    except Exception as e:
+        raise HTTPException(502, detail=f"Failed to fetch WP categories: {str(e)}")
+
+
+@router.get("/wordpress/tags")
+async def get_wp_tags():
+    try:
+        tags = await wordpress_service.get_tags()
+        return {
+            "success": True,
+            "data": [{"id": t["id"], "name": t["name"], "slug": t["slug"], "count": t.get("count", 0)} for t in tags],
+        }
+    except Exception as e:
+        raise HTTPException(502, detail=f"Failed to fetch WP tags: {str(e)}")
 
 
 @router.delete("/{article_id}")

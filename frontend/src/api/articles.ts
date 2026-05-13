@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest } from '../types';
+import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest, WPCategory, WPTag } from '../types';
 
 export async function fetchArticles(params?: { page?: number; limit?: number; status?: string }) {
   const { data } = await apiClient.get<ApiEnvelope<ArticleListItem[]>>('/articles', { params });
@@ -48,5 +48,15 @@ export async function regenerateArticle(id: string, stage: string) {
 
 export async function deleteArticle(id: string) {
   const { data } = await apiClient.delete(`/articles/${id}`);
+  return data;
+}
+
+export async function fetchWPCategories() {
+  const { data } = await apiClient.get<ApiEnvelope<WPCategory[]>>('/wordpress/categories');
+  return data;
+}
+
+export async function fetchWPTags() {
+  const { data } = await apiClient.get<ApiEnvelope<WPTag[]>>('/wordpress/tags');
   return data;
 }

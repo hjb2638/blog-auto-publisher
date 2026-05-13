@@ -12,6 +12,7 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 import OutlineReview from '../components/articles/OutlineReview';
 import ContentReview from '../components/articles/ContentReview';
 import ImageReview from '../components/articles/ImageReview';
+import FinalReview from '../components/articles/FinalReview';
 import ContentRenderer from '../components/articles/ContentRenderer';
 import GenerationProgress from '../components/articles/GenerationProgress';
 import type { Article } from '../types';
@@ -134,7 +135,7 @@ export default function ArticleDetailPage() {
           outline={article.outline}
           topic={article.topic}
           isAuto={article.mode === 'auto'}
-          onApprove={() => approveOutline.mutate(undefined)}
+          onApprove={(body) => approveOutline.mutate(body)}
           isPending={approveOutline.isPending}
         />
       )}
@@ -143,7 +144,7 @@ export default function ArticleDetailPage() {
         <ContentReview
           content={article.content}
           isAuto={article.mode === 'auto'}
-          onApprove={() => approveContent.mutate(undefined)}
+          onApprove={(body) => approveContent.mutate(body)}
           isPending={approveContent.isPending}
         />
       )}
@@ -152,43 +153,18 @@ export default function ArticleDetailPage() {
         <ImageReview
           images={article.images}
           isAuto={article.mode === 'auto'}
-          onApprove={() => approveFinal.mutate(undefined)}
+          onApprove={(body) => approveFinal.mutate(body)}
           onRemoveImage={() => {}}
           isPending={approveFinal.isPending}
         />
       )}
 
       {status === 'final_approved' && (
-        <div className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Final Review</h2>
-            {article.fullHtml && <ContentRenderer html={article.fullHtml} />}
-            {article.images && article.images.length > 0 && (
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                {article.images.map((img) => (
-                  <div key={img.id}>
-                    <img
-                      src={img.url}
-                      alt={img.altText}
-                      className="w-full h-32 object-cover rounded"
-                      loading="lazy"
-                    />
-                    <p className="text-xs text-gray-400 mt-1 truncate">{img.altText}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={() => publishArticle.mutate(undefined)}
-              disabled={publishArticle.isPending}
-              className="px-6 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 disabled:opacity-50"
-            >
-              {publishArticle.isPending ? 'Publishing...' : 'Publish to WordPress'}
-            </button>
-          </div>
-        </div>
+        <FinalReview
+          article={article}
+          isPending={publishArticle.isPending}
+          onPublish={(body) => publishArticle.mutate(body)}
+        />
       )}
 
       {status === 'failed' && (

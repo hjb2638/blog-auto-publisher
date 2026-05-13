@@ -119,16 +119,19 @@ class ArticleDetail(CamelModel):
 class ApproveOutlineRequest(CamelModel):
     title: str | None = None
     sections: list[OutlineSectionSchema] | None = None
+    revision_prompt: str | None = None
     regenerate: bool = False
 
 
 class ApproveContentRequest(CamelModel):
     section_edits: dict[str, str] | None = None
+    revision_prompt: str | None = None
     regenerate_sections: list[str] | None = None
 
 
 class ApproveFinalRequest(CamelModel):
     remove_images: list[str] | None = None
+    revision_prompt: str | None = None
     replace_image: dict | None = None
 
 
@@ -137,7 +140,22 @@ class PublishRequest(CamelModel):
     slug: str | None = None
     category_id: int | None = None
     tag_ids: list[int] | None = None
+    auto_create_taxonomy: bool = False
     status: str = "publish"
+
+
+class WPCategory(CamelModel):
+    id: int
+    name: str
+    slug: str
+    count: int = 0
+
+
+class WPTag(CamelModel):
+    id: int
+    name: str
+    slug: str
+    count: int = 0
 
 
 class RegenerateRequest(CamelModel):

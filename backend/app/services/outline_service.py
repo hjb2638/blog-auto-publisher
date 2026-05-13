@@ -4,8 +4,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import json
+
 from app.models.article import Article
 from app.prompts.outline import OUTLINE_PROMPT_TEMPLATE
+from app.prompts.revision import OUTLINE_REVISION_PROMPT
 from app.services.article_service import is_auto_mode, mark_failed, update_status
 from app.services.llm_service import llm_service
 from app.services.stream_service import stream_manager
@@ -50,3 +53,24 @@ async def generate_outline(db: AsyncSession, article: Article) -> Article:
         logger.error("Outline generation failed: %s", str(e))
         await stream_manager.send_error(article.id, str(e))
         return await mark_failed(db, article, "outline", str(e))
+
+
+async def revise_outline(db: AsyncSession, article: Article, revision_prompt: str) -> Article:
+    current_json = json.dumps(article.outline, ensure_ascii=False, indent=2)
+    prompt = OUTLINE_REVISION_PROMPT.format(
+        current_outline_json=current_json,
+        revision_prompt=revision_prompt,
+    )
+
+    try:
+        result = await llm_service.generate_json(prompt)
+        outline = result["parsed"]
+        for section in outline.get("sections", []):
+            if "slug" not in section or not section["slug"]:
+                section["slug"] = _slugify(section.get("heading", f"section-{uuid.uuid4().hex[:8]}"))
+        article.outline = outline
+        logger.info("Outline revised: id=%s", article.id)
+        return article
+    except Exception as e:
+        logger.error("Outline revision failed: %s", str(e))
+        raise

@@ -109,4 +109,21 @@ export interface PublishRequest {
   title?: string;
   slug?: string;
   status?: string;
+  categoryId?: number;
+  tagIds?: number[];
+  autoCreateTaxonomy?: boolean;
+}
+
+export interface WPCategory {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+}
+
+export interface WPTag {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
 }

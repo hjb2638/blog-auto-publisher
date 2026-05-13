@@ -83,6 +83,27 @@ class WordPressService:
         logger.info("WP upload media: url=%s id=%s", image_url, media["id"])
         return media
 
+    async def get_categories(self) -> list[dict]:
+        return await self._request("GET", "/wp/v2/categories?per_page=100")
+
+    async def get_tags(self) -> list[dict]:
+        return await self._request("GET", "/wp/v2/tags?per_page=100")
+
+    async def create_category(self, name: str, slug: str | None = None) -> dict:
+        data = {"name": name}
+        if slug:
+            data["slug"] = slug
+        return await self._request("POST", "/wp/v2/categories", data)
+
+    async def create_tag(self, name: str, slug: str | None = None) -> dict:
+        data = {"name": name}
+        if slug:
+            data["slug"] = slug
+        return await self._request("POST", "/wp/v2/tags", data)
+
+    async def get_current_user(self) -> dict:
+        return await self._request("GET", "/wp/v2/users/me")
+
     async def check_connection(self) -> bool:
         try:
             await self._request("GET", "/wp/v2/posts?per_page=1")

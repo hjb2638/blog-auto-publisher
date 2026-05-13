@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article
 from app.prompts.content import CONTENT_PROMPT_TEMPLATE
+from app.prompts.revision import CONTENT_REVISION_PROMPT
 from app.services.article_service import is_auto_mode, mark_failed, update_status
 from app.services.llm_service import llm_service
 from app.services.stream_service import stream_manager
@@ -110,3 +111,48 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
 
 async def regenerate_sections(db: AsyncSession, article: Article, slugs: list[str]) -> Article:
     return await generate_content(db, article, sections_to_generate=slugs)
+
+
+async def revise_sections(
+    db: AsyncSession,
+    article: Article,
+    slugs: list[str],
+    revision_prompt: str,
+) -> Article:
+    outline = article.outline or {}
+    article_title = outline.get("title", article.topic)
+    content_data = article.content or {}
+    sections = content_data.get("sections", [])
+
+    slugs_to_revise = set(slugs) if slugs else {s.get("slug", "") for s in sections}
+
+    try:
+        for section in sections:
+            slug = section.get("slug", "")
+            if slug not in slugs_to_revise:
+                continue
+
+            prompt = CONTENT_REVISION_PROMPT.format(
+                title=article_title,
+                heading=section.get("heading", ""),
+                current_html=section.get("html", ""),
+                revision_prompt=revision_prompt,
+            )
+
+            result = await llm_service.generate_response(prompt)
+            html = sanitize_html(result["content"])
+            section["html"] = html
+            section["word_count"] = _count_words(html)
+
+        full_html = "\n".join(s.get("html", "") for s in sections)
+        total_words = sum(s.get("word_count", 0) for s in sections)
+        article.content = {
+            "sections": sections,
+            "full_html": full_html,
+            "total_word_count": total_words,
+        }
+        logger.info("Sections revised: id=%s slugs=%s", article.id, slugs)
+        return article
+    except Exception as e:
+        logger.error("Section revision failed: %s", str(e))
+        raise
