@@ -50,6 +50,7 @@ class WordPressService:
         status: str = "publish",
         category_id: int | None = None,
         tag_ids: list[int] | None = None,
+        featured_media_id: int | None = None,
     ) -> dict:
         data: dict = {"title": title, "content": content, "status": status}
         if slug:
@@ -58,7 +59,9 @@ class WordPressService:
             data["categories"] = [category_id]
         if tag_ids:
             data["tags"] = tag_ids
-        logger.info("WP create post: title=%s status=%s", title, status)
+        if featured_media_id:
+            data["featured_media"] = featured_media_id
+        logger.info("WP create post: title=%s status=%s featured_media=%s", title, status, featured_media_id)
         return await self._request("POST", "/wp/v2/posts", data)
 
     async def upload_media(self, image_url: str, alt_text: str = "") -> dict:

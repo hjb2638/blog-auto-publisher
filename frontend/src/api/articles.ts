@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest, WPCategory, WPTag } from '../types';
+import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest, WPCategory, WPTag, ImagePlan } from '../types';
 
 export async function fetchArticles(params?: { page?: number; limit?: number; status?: string }) {
   const { data } = await apiClient.get<ApiEnvelope<ArticleListItem[]>>('/articles', { params });
@@ -31,7 +31,12 @@ export async function approveContent(id: string, body?: unknown) {
   return data;
 }
 
-export async function approveFinal(id: string, body?: unknown) {
+export async function approveImageKeywords(id: string, body?: { plan?: ImagePlan; revisionPrompt?: string }) {
+  const { data } = await apiClient.post<ApiEnvelope<Article>>(`/articles/${id}/approve-image-keywords`, body || {});
+  return data;
+}
+
+export async function approveFinal(id: string, body?: { removeImages?: string[]; revisionPrompt?: string; coverImageId?: string }) {
   const { data } = await apiClient.post<ApiEnvelope<Article>>(`/articles/${id}/approve-final`, body || {});
   return data;
 }

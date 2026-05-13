@@ -46,6 +46,8 @@ async def generate_outline(db: AsyncSession, article: Article) -> Article:
         if await is_auto_mode(article):
             article = await update_status(db, article, "outline_approved")
             await stream_manager.send_status(article.id, "outline_approved")
+            from app.services.content_service import generate_content
+            article = await generate_content(db, article)
 
         return article
 

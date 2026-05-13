@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useArticle } from '../hooks/useArticle';
 import {
-  useApproveOutline, useApproveContent, useApproveFinal,
+  useApproveOutline, useApproveContent, useApproveImageKeywords, useApproveFinal,
   usePublishArticle, useRegenerateArticle, useDeleteArticle,
 } from '../hooks/useArticleMutations';
 import StatusStepper from '../components/common/StatusStepper';
@@ -11,6 +11,7 @@ import ErrorDisplay from '../components/common/ErrorDisplay';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import OutlineReview from '../components/articles/OutlineReview';
 import ContentReview from '../components/articles/ContentReview';
+import ImageKeywordReview from '../components/articles/ImageKeywordReview';
 import ImageReview from '../components/articles/ImageReview';
 import FinalReview from '../components/articles/FinalReview';
 import ContentRenderer from '../components/articles/ContentRenderer';
@@ -19,6 +20,15 @@ import type { Article } from '../types';
 
 function getElapsed(startedAt: string): number {
   return (Date.now() - new Date(startedAt).getTime()) / 1000;
+}
+
+function getSectionNames(article: Article): Record<string, string> {
+  const sections = article.content?.sections || article.outline?.sections || [];
+  const names: Record<string, string> = {};
+  for (const s of sections) {
+    names[s.slug] = s.heading;
+  }
+  return names;
 }
 
 export default function ArticleDetailPage() {
@@ -32,6 +42,7 @@ export default function ArticleDetailPage() {
 
   const approveOutline = useApproveOutline(id);
   const approveContent = useApproveContent(id);
+  const approveImageKeywords = useApproveImageKeywords(id);
   const approveFinal = useApproveFinal(id);
   const publishArticle = usePublishArticle(id);
   const regenerateArticle = useRegenerateArticle(id);
@@ -149,12 +160,21 @@ export default function ArticleDetailPage() {
         />
       )}
 
+      {status === 'image_keywords_ready' && article.imagePlan && (
+        <ImageKeywordReview
+          imagePlan={article.imagePlan}
+          sectionNames={getSectionNames(article)}
+          isAuto={article.mode === 'auto'}
+          onApprove={(body) => approveImageKeywords.mutate(body)}
+          isPending={approveImageKeywords.isPending}
+        />
+      )}
+
       {status === 'images_ready' && article.images && (
         <ImageReview
           images={article.images}
           isAuto={article.mode === 'auto'}
           onApprove={(body) => approveFinal.mutate(body)}
-          onRemoveImage={() => {}}
           isPending={approveFinal.isPending}
         />
       )}

@@ -100,6 +100,8 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
         if await is_auto_mode(article):
             article = await update_status(db, article, "content_approved")
             await stream_manager.send_status(article.id, "content_approved")
+            from app.services.image_service import generate_image_plan
+            article = await generate_image_plan(db, article)
 
         return article
 

@@ -19,6 +19,7 @@ class Article(Base):
     outline: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     images: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    image_plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     full_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     wp_post_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

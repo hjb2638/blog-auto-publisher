@@ -12,18 +12,18 @@ const STEPS: Step[] = [
     key: 'outline',
     label: 'Outline',
     activeStates: ['outline_generating'],
-    doneStates: ['outline_ready', 'outline_approved', 'content_generating', 'content_ready', 'content_approved', 'image_searching', 'images_ready', 'final_approved', 'publishing', 'published'],
+    doneStates: ['outline_ready', 'outline_approved', 'content_generating', 'content_ready', 'content_approved', 'image_keywords_ready', 'image_searching', 'images_ready', 'final_approved', 'publishing', 'published'],
   },
   {
     key: 'content',
     label: 'Content',
     activeStates: ['content_generating'],
-    doneStates: ['content_ready', 'content_approved', 'image_searching', 'images_ready', 'final_approved', 'publishing', 'published'],
+    doneStates: ['content_ready', 'content_approved', 'image_keywords_ready', 'image_searching', 'images_ready', 'final_approved', 'publishing', 'published'],
   },
   {
     key: 'images',
     label: 'Images',
-    activeStates: ['image_searching'],
+    activeStates: ['image_searching', 'image_keywords_ready'],
     doneStates: ['images_ready', 'final_approved', 'publishing', 'published'],
   },
   {

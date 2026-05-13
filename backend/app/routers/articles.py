@@ -8,6 +8,7 @@ from app.core.dependencies import get_session
 from app.schemas.article import (
     ApproveContentRequest,
     ApproveFinalRequest,
+    ApproveImageKeywordsRequest,
     ApproveOutlineRequest,
     CreateArticleRequest,
     PublishRequest,
@@ -17,7 +18,7 @@ from app.schemas.article import (
 )
 from app.services import article_service as svc
 from app.services.content_service import generate_content, regenerate_sections, revise_sections
-from app.services.image_service import search_and_insert_images
+from app.services.image_service import generate_image_plan, search_and_insert_images, insert_images_into_content
 from app.services.outline_service import generate_outline, revise_outline
 from app.services.taxonomy_service import match_or_create_taxonomy
 from app.services.wordpress_service import wordpress_service
@@ -131,7 +132,30 @@ async def approve_content(
         article = await regenerate_sections(db, article, body.regenerate_sections)
     else:
         article = await svc.update_status(db, article, "content_approved")
-        await search_and_insert_images(db, article)
+        await generate_image_plan(db, article)
+
+    await db.commit()
+    await db.refresh(article)
+    return {"success": True, "data": svc.article_to_detail(article)}
+
+
+@router.post("/{article_id}/approve-image-keywords")
+async def approve_image_keywords(
+    article_id: UUID, body: ApproveImageKeywordsRequest, db: AsyncSession = Depends(get_session)
+):
+    article = await svc.get_article(db, article_id)
+    if not article:
+        raise HTTPException(404, detail="Article not found")
+    if article.status != "image_keywords_ready":
+        raise HTTPException(409, detail=f"Article is not in image_keywords_ready state (current: {article.status})")
+
+    if body.plan:
+        article.image_plan = body.plan.model_dump()
+
+    if body.revision_prompt:
+        article = await generate_image_plan(db, article)
+    else:
+        article = await search_and_insert_images(db, article)
 
     await db.commit()
     await db.refresh(article)
@@ -151,6 +175,11 @@ async def approve_final(
     if body.remove_images and article.images:
         article.images = [img for img in article.images if img.get("id") not in body.remove_images]
 
+    if body.cover_image_id and article.images:
+        for img in article.images:
+            img["type"] = "cover" if img.get("id") == body.cover_image_id else img.get("type", "inline")
+
+    article = insert_images_into_content(article)
     article = await svc.update_status(db, article, "final_approved")
     await db.commit()
     await db.refresh(article)
@@ -171,15 +200,18 @@ async def publish_article(
 
     try:
         title = body.title or (article.outline or {}).get("title", article.topic)
-        content = article.content.get("full_html", "") if article.content else ""
+        content = article.full_html or (article.content or {}).get("full_html", "")
         slug = body.slug or None
-
-        category_id = body.category_id
-        tag_ids = body.tag_ids
-
         outline = article.outline or {}
 
-        if category_id is None and outline.get("category"):
+        category_id = body.category_id
+        tag_ids = list(body.tag_ids) if body.tag_ids else None
+
+        if category_id is None and body.category_name:
+            new_cat = await wordpress_service.create_category(body.category_name)
+            category_id = new_cat["id"]
+            logger.info("Created custom category: %s -> id=%d", body.category_name, category_id)
+        elif category_id is None and outline.get("category"):
             matched_cat, _ = await match_or_create_taxonomy(
                 wordpress_service,
                 outline["category"],
@@ -189,7 +221,14 @@ async def publish_article(
             if matched_cat is not None:
                 category_id = matched_cat
 
-        if tag_ids is None and outline.get("tags"):
+        if tag_ids is None:
+            tag_ids = []
+        if body.tag_names:
+            for tag_name in body.tag_names:
+                new_tag = await wordpress_service.create_tag(tag_name)
+                tag_ids.append(new_tag["id"])
+                logger.info("Created custom tag: %s -> id=%d", tag_name, new_tag["id"])
+        elif not tag_ids and outline.get("tags"):
             _, matched_tags = await match_or_create_taxonomy(
                 wordpress_service,
                 None,
@@ -199,13 +238,27 @@ async def publish_article(
             if matched_tags:
                 tag_ids = matched_tags
 
+        featured_media_id = None
+        cover_image = None
+        if article.images:
+            cover_image = next((img for img in article.images if img.get("type") == "cover"), None)
+        if cover_image:
+            try:
+                alt = cover_image.get("alt_text", title)
+                media = await wordpress_service.upload_media(cover_image["url"], alt)
+                featured_media_id = media["id"]
+                logger.info("Cover image uploaded: wp_media_id=%d", featured_media_id)
+            except Exception as e:
+                logger.warning("Failed to upload cover image: %s", e)
+
         wp_post = await wordpress_service.create_post(
             title=title,
             content=content,
             slug=slug,
             status=body.status,
             category_id=category_id,
-            tag_ids=tag_ids,
+            tag_ids=tag_ids if tag_ids else None,
+            featured_media_id=featured_media_id,
         )
 
         article.wp_post_id = wp_post["id"]

@@ -1,7 +1,7 @@
 export type ArticleStatus =
   | 'draft' | 'outline_generating' | 'outline_ready' | 'outline_approved'
   | 'content_generating' | 'content_ready' | 'content_approved'
-  | 'image_searching' | 'images_ready' | 'final_approved'
+  | 'image_keywords_ready' | 'image_searching' | 'images_ready' | 'final_approved'
   | 'publishing' | 'published' | 'failed' | 'cancelled';
 
 export type ArticleMode = 'manual' | 'auto';
@@ -25,6 +25,7 @@ export interface Article {
   outline: Outline | null;
   content: ArticleContent | null;
   images: ArticleImage[] | null;
+  imagePlan: ImagePlan | null;
   fullHtml: string | null;
   progress: Progress | null;
   wpPostId: number | null;
@@ -75,6 +76,26 @@ export interface ArticleImage {
   source: string;
   sourceUrl: string;
   photographer: string;
+  type?: 'inline' | 'cover';
+}
+
+export interface ImagePlacement {
+  sectionSlug: string;
+  position: 'before' | 'after';
+  keywords: string[];
+  suggestedCount: number;
+  rationale: string;
+}
+
+export interface CoverImagePlan {
+  keywords: string[];
+  suggestedCount: number;
+  rationale: string;
+}
+
+export interface ImagePlan {
+  inlineImages: ImagePlacement[];
+  coverImage: CoverImagePlan | null;
 }
 
 export interface Progress {
@@ -111,6 +132,8 @@ export interface PublishRequest {
   status?: string;
   categoryId?: number;
   tagIds?: number[];
+  categoryName?: string;
+  tagNames?: string[];
   autoCreateTaxonomy?: boolean;
 }
 

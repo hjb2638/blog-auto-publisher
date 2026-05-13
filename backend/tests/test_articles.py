@@ -75,6 +75,7 @@ async def test_create_article_success(client: AsyncClient):
     mock_article.outline = None
     mock_article.content = None
     mock_article.images = None
+    mock_article.image_plan = None
     mock_article.full_html = None
     mock_article.progress = None
     mock_article.wp_post_id = None

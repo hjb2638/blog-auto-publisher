@@ -23,6 +23,7 @@ class ArticleStatus(str, Enum):
     content_generating = "content_generating"
     content_ready = "content_ready"
     content_approved = "content_approved"
+    image_keywords_ready = "image_keywords_ready"
     image_searching = "image_searching"
     images_ready = "images_ready"
     final_approved = "final_approved"
@@ -105,6 +106,7 @@ class ArticleDetail(CamelModel):
     outline: OutlineSchema | None = None
     content: ArticleContentSchema | None = None
     images: list[ArticleImageSchema] | None = None
+    image_plan: "ImagePlanSchema | None" = None
     full_html: str | None = None
     progress: ProgressSchema | None = None
     wp_post_id: int | None = None
@@ -129,10 +131,35 @@ class ApproveContentRequest(CamelModel):
     regenerate_sections: list[str] | None = None
 
 
+class ImagePlacementSchema(CamelModel):
+    section_slug: str
+    position: str = "before"  # "before" | "after"
+    keywords: list[str] = []
+    suggested_count: int = 1
+    rationale: str = ""
+
+
+class CoverImageSchema(CamelModel):
+    keywords: list[str] = []
+    suggested_count: int = 1
+    rationale: str = ""
+
+
+class ImagePlanSchema(CamelModel):
+    inline_images: list[ImagePlacementSchema] = []
+    cover_image: CoverImageSchema | None = None
+
+
+class ApproveImageKeywordsRequest(CamelModel):
+    plan: ImagePlanSchema | None = None
+    revision_prompt: str | None = None
+
+
 class ApproveFinalRequest(CamelModel):
     remove_images: list[str] | None = None
     revision_prompt: str | None = None
     replace_image: dict | None = None
+    cover_image_id: str | None = None
 
 
 class PublishRequest(CamelModel):
@@ -140,6 +167,8 @@ class PublishRequest(CamelModel):
     slug: str | None = None
     category_id: int | None = None
     tag_ids: list[int] | None = None
+    category_name: str | None = None
+    tag_names: list[str] | None = None
     auto_create_taxonomy: bool = False
     status: str = "publish"
 
