@@ -1,5 +1,6 @@
 import uuid
 
+import bleach
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +43,8 @@ async def _search_images(section_heading: str, content_preview: str) -> list[dic
                     for photo in data.get("results", []):
                         images.append({
                             "id": photo["id"],
-                            "url": photo["urls"]["regular"],
+                            "url": photo["urls"]["small"],
+                            "full_url": photo["urls"]["regular"],
                             "alt_text": keyword,
                             "source": "unsplash",
                             "source_url": photo["links"]["html"],
@@ -73,7 +75,8 @@ async def _search_images_by_keywords(keywords: list[str], count: int) -> list[di
                     for photo in data.get("results", [])[:per_keyword]:
                         images.append({
                             "id": photo["id"],
-                            "url": photo["urls"]["regular"],
+                            "url": photo["urls"]["small"],
+                            "full_url": photo["urls"]["regular"],
                             "alt_text": keyword,
                             "source": "unsplash",
                             "source_url": photo["links"]["html"],
@@ -137,6 +140,7 @@ async def search_and_insert_images(db: AsyncSession, article: Article) -> Articl
     section_map = {s.get("slug", ""): s for s in sections}
 
     all_images = []
+    seen_ids: set[str] = set()
     inline_placements = image_plan.get("inline_images", [])
 
     try:
@@ -159,10 +163,13 @@ async def search_and_insert_images(db: AsyncSession, article: Article) -> Articl
 
             found = await _search_images_by_keywords(keywords, count)
             for img in found:
+                if img["id"] in seen_ids:
+                    continue
+                seen_ids.add(img["id"])
                 img["section_slug"] = slug
                 img["position"] = position
                 img["type"] = "inline"
-            all_images.extend(found)
+                all_images.append(img)
 
         cover_plan = image_plan.get("cover_image")
         if cover_plan:
@@ -170,26 +177,33 @@ async def search_and_insert_images(db: AsyncSession, article: Article) -> Articl
             cover_count = cover_plan.get("suggested_count", 1)
             found = await _search_images_by_keywords(cover_keywords, cover_count)
             for img in found:
+                if img["id"] in seen_ids:
+                    continue
+                seen_ids.add(img["id"])
                 img["section_slug"] = ""
                 img["position"] = "cover"
                 img["type"] = "cover"
-            all_images.extend(found)
+                all_images.append(img)
 
         article.images = all_images
         article = await update_status(db, article, "images_ready")
         await stream_manager.send_status(article.id, "images_ready")
 
-        if await is_auto_mode(article):
-            article = insert_images_into_content(article)
-            article = await update_status(db, article, "final_approved")
-            await stream_manager.send_status(article.id, "final_approved")
-
-        return article
-
     except Exception as e:
         logger.error("Image search failed: %s", str(e))
         await stream_manager.send_error(article.id, str(e))
         return await mark_failed(db, article, "images", str(e))
+
+    if await is_auto_mode(article):
+        try:
+            article = insert_images_into_content(article)
+        except Exception as e:
+            logger.error("Image insertion failed: %s", str(e))
+            return await mark_failed(db, article, "images", str(e))
+        article = await update_status(db, article, "final_approved")
+        await stream_manager.send_status(article.id, "final_approved")
+
+    return article
 
 
 def insert_images_into_content(article: Article) -> Article:
@@ -226,7 +240,7 @@ def insert_images_into_content(article: Article) -> Article:
 
         section["html"] = "".join(figures)
 
-    full_html = "\n".join(s.get("html", "") for s in sections)
+    full_html = "".join(s.get("html", "") for s in sections)
     total_words = sum(s.get("word_count", 0) for s in sections)
     article.content = {
         "sections": sections,
@@ -238,7 +252,7 @@ def insert_images_into_content(article: Article) -> Article:
 
 
 def _build_figure(img: dict) -> str:
-    url = img.get("url", "")
+    url = img.get("full_url") or img.get("url", "")
     alt = img.get("alt_text", "")
     photographer = img.get("photographer", "")
     source_url = img.get("source_url", "")
@@ -246,4 +260,8 @@ def _build_figure(img: dict) -> str:
     if source_url:
         caption = f'<a href="{source_url}" target="_blank" rel="noopener">{caption}</a>' if caption else ""
     figcaption = f"<figcaption>{caption}</figcaption>" if caption else ""
-    return f'<figure><img src="{url}" alt="{alt}" loading="lazy"/>{figcaption}</figure>'
+    html = f'<figure><img src="{url}" alt="{alt}" loading="lazy"/>{figcaption}</figure>'
+    return bleach.clean(html, tags=["figure", "img", "figcaption", "a"], attributes={
+        "img": ["src", "alt", "loading"],
+        "a": ["href", "target", "rel"],
+    })

@@ -13,8 +13,6 @@ from app.schemas.article import (
     CreateArticleRequest,
     PublishRequest,
     RegenerateRequest,
-    WPCategory,
-    WPTag,
 )
 from app.services import article_service as svc
 from app.services.content_service import generate_content, regenerate_sections, revise_sections
@@ -172,7 +170,9 @@ async def approve_final(
     if article.status != "images_ready":
         raise HTTPException(409, detail=f"Article is not in images_ready state (current: {article.status})")
 
-    if body.remove_images and article.images:
+    if body.selected_images and article.images:
+        article.images = [img for img in article.images if img.get("id") in body.selected_images]
+    elif body.remove_images and article.images:
         article.images = [img for img in article.images if img.get("id") not in body.remove_images]
 
     if body.cover_image_id and article.images:
@@ -302,28 +302,28 @@ async def regenerate_article(
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
-@router.get("/wordpress/categories")
-async def get_wp_categories():
-    try:
-        categories = await wordpress_service.get_categories()
-        return {
-            "success": True,
-            "data": [{"id": c["id"], "name": c["name"], "slug": c["slug"], "count": c.get("count", 0)} for c in categories],
-        }
-    except Exception as e:
-        raise HTTPException(502, detail=f"Failed to fetch WP categories: {str(e)}")
+
+STEP_BACK_MAP = {
+    "outline_ready": "draft",
+    "content_ready": "outline_ready",
+    "image_keywords_ready": "content_ready",
+    "images_ready": "image_keywords_ready",
+    "final_approved": "images_ready",
+}
 
 
-@router.get("/wordpress/tags")
-async def get_wp_tags():
-    try:
-        tags = await wordpress_service.get_tags()
-        return {
-            "success": True,
-            "data": [{"id": t["id"], "name": t["name"], "slug": t["slug"], "count": t.get("count", 0)} for t in tags],
-        }
-    except Exception as e:
-        raise HTTPException(502, detail=f"Failed to fetch WP tags: {str(e)}")
+@router.post("/{article_id}/step-back")
+async def step_back(article_id: UUID, db: AsyncSession = Depends(get_session)):
+    article = await svc.get_article(db, article_id)
+    if not article:
+        raise HTTPException(404, detail="Article not found")
+    prev = STEP_BACK_MAP.get(article.status)
+    if not prev:
+        raise HTTPException(409, detail=f"Cannot step back from {article.status}")
+    article = await svc.update_status(db, article, prev)
+    await db.commit()
+    await db.refresh(article)
+    return {"success": True, "data": svc.article_to_detail(article)}
 
 
 @router.delete("/{article_id}")

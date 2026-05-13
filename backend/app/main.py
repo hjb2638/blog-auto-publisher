@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.exceptions import AppException
-from app.routers import articles, health, stream
+from app.routers import articles, health, stream, wordpress
 
 app = FastAPI(title="Blog Publisher", version="0.1.0")
 
@@ -39,3 +39,4 @@ async def root():
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(articles.router, prefix="/api/v1")
 app.include_router(stream.router, prefix="/api/v1")
+app.include_router(wordpress.router, prefix="/api/v1")

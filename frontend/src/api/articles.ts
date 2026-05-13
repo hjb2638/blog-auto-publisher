@@ -36,8 +36,13 @@ export async function approveImageKeywords(id: string, body?: { plan?: ImagePlan
   return data;
 }
 
-export async function approveFinal(id: string, body?: { removeImages?: string[]; revisionPrompt?: string; coverImageId?: string }) {
+export async function approveFinal(id: string, body?: { selectedImages?: string[]; removeImages?: string[]; revisionPrompt?: string; coverImageId?: string }) {
   const { data } = await apiClient.post<ApiEnvelope<Article>>(`/articles/${id}/approve-final`, body || {});
+  return data;
+}
+
+export async function stepBack(id: string) {
+  const { data } = await apiClient.post<ApiEnvelope<Article>>(`/articles/${id}/step-back`);
   return data;
 }
 

@@ -6,6 +6,7 @@ interface ImageKeywordReviewProps {
   sectionNames: Record<string, string>;
   isAuto: boolean;
   onApprove: (body: { plan?: ImagePlan; revisionPrompt?: string }) => void;
+  onBack?: () => void;
   isPending: boolean;
 }
 
@@ -14,6 +15,7 @@ export default function ImageKeywordReview({
   sectionNames,
   isAuto,
   onApprove,
+  onBack,
   isPending,
 }: ImageKeywordReviewProps) {
   const [plan, setPlan] = useState<ImagePlan>(structuredClone(imagePlan));
@@ -34,7 +36,7 @@ export default function ImageKeywordReview({
       ...prev,
       inlineImages: [
         ...prev.inlineImages,
-        { sectionSlug: '', position: 'before' as const, keywords: [''], suggestedCount: 1, rationale: '' },
+        { sectionSlug: '', position: 'before' as const, keywords: [''], suggestedCount: 1, rationale: '', key: crypto.randomUUID() },
       ],
     }));
   };
@@ -85,7 +87,7 @@ export default function ImageKeywordReview({
         </h3>
         <div className="space-y-4">
           {plan.inlineImages.map((placement, i) => (
-            <div key={i} className="border border-gray-100 rounded-md p-3 bg-gray-50">
+            <div key={placement.key || i} className="border border-gray-100 rounded-md p-3 bg-gray-50">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-gray-500">Image {i + 1}</span>
                 <button
@@ -232,7 +234,13 @@ export default function ImageKeywordReview({
         />
       </div>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex justify-between">
+        {onBack && (
+          <button onClick={onBack} disabled={isPending} className="px-5 py-2 border border-gray-200 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-50">
+            &larr; Back
+          </button>
+        )}
+        <div className="flex gap-3 ml-auto">
         <button
           onClick={handleApprove}
           disabled={isPending}
@@ -247,6 +255,7 @@ export default function ImageKeywordReview({
         >
           {isPending ? 'Revising...' : 'Revise Plan with AI'}
         </button>
+        </div>
       </div>
     </div>
   );

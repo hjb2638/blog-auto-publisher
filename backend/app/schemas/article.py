@@ -156,6 +156,7 @@ class ApproveImageKeywordsRequest(CamelModel):
 
 
 class ApproveFinalRequest(CamelModel):
+    selected_images: list[str] | None = None
     remove_images: list[str] | None = None
     revision_prompt: str | None = None
     replace_image: dict | None = None

@@ -6,10 +6,11 @@ interface OutlineReviewProps {
   topic: string;
   isAuto: boolean;
   onApprove: (body: { title?: string; sections?: OutlineSection[]; revisionPrompt?: string }) => void;
+  onBack?: () => void;
   isPending: boolean;
 }
 
-export default function OutlineReview({ outline, topic, isAuto, onApprove, isPending }: OutlineReviewProps) {
+export default function OutlineReview({ outline, topic, isAuto, onApprove, onBack, isPending }: OutlineReviewProps) {
   const [title, setTitle] = useState(outline.title);
   const [metaDescription, setMetaDescription] = useState(outline.metaDescription);
   const [sections, setSections] = useState<OutlineSection[]>(
@@ -165,7 +166,13 @@ export default function OutlineReview({ outline, topic, isAuto, onApprove, isPen
         />
       </div>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex justify-between">
+        {onBack && (
+          <button onClick={onBack} disabled={isPending} className="px-5 py-2 border border-gray-200 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-50">
+            &larr; Back
+          </button>
+        )}
+        <div className="flex gap-3 ml-auto">
         <button
           onClick={handleApprove}
           disabled={isPending}
@@ -180,6 +187,7 @@ export default function OutlineReview({ outline, topic, isAuto, onApprove, isPen
         >
           {isPending ? 'Revising...' : 'Revise with AI →'}
         </button>
+        </div>
       </div>
     </div>
   );

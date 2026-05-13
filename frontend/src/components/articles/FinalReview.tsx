@@ -7,9 +7,10 @@ interface FinalReviewProps {
   article: Article;
   isPending: boolean;
   onPublish: (body: PublishRequest) => void;
+  onBack?: () => void;
 }
 
-export default function FinalReview({ article, isPending, onPublish }: FinalReviewProps) {
+export default function FinalReview({ article, isPending, onPublish, onBack }: FinalReviewProps) {
   const [categories, setCategories] = useState<WPCategory[]>([]);
   const [tags, setTags] = useState<WPTag[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
@@ -142,6 +143,9 @@ export default function FinalReview({ article, isPending, onPublish }: FinalRevi
                 <option value="">
                   {outlineCategory ? `Auto-match: ${outlineCategory}` : 'None'}
                 </option>
+                {categories.length === 0 && (
+                  <option value="" disabled>No categories found</option>
+                )}
                 {categories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name} ({cat.count})
@@ -195,7 +199,7 @@ export default function FinalReview({ article, isPending, onPublish }: FinalRevi
                   </label>
                 ))}
                 {tags.length === 0 && (
-                  <p className="text-xs text-gray-400 p-2">Loading tags...</p>
+                  <p className="text-xs text-gray-400 p-2">No tags found. <button onClick={() => setUseCustomTags(true)} className="text-blue-500 hover:underline">Create one</button></p>
                 )}
               </div>
             )}
@@ -213,7 +217,13 @@ export default function FinalReview({ article, isPending, onPublish }: FinalRevi
         </label>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-between">
+        {onBack && (
+          <button onClick={onBack} disabled={isPending} className="px-5 py-2 border border-gray-200 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-50">
+            &larr; Back
+          </button>
+        )}
+        <div className="flex gap-3 ml-auto">
         <button
           onClick={handlePublish}
           disabled={isPending}
@@ -221,6 +231,7 @@ export default function FinalReview({ article, isPending, onPublish }: FinalRevi
         >
           {isPending ? 'Publishing...' : 'Publish to WordPress'}
         </button>
+        </div>
       </div>
     </div>
   );

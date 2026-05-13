@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createArticle, approveOutline, approveContent, approveImageKeywords, approveFinal,
-  publishArticle, regenerateArticle, deleteArticle,
+  publishArticle, regenerateArticle, deleteArticle, stepBack,
 } from '../api/articles';
 import type { CreateArticleRequest, PublishRequest, ImagePlan } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -55,7 +55,18 @@ export function useApproveImageKeywords(id: string | undefined) {
 export function useApproveFinal(id: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body?: { removeImages?: string[]; revisionPrompt?: string; coverImageId?: string }) => approveFinal(id!, body),
+    mutationFn: (body?: { selectedImages?: string[]; removeImages?: string[]; revisionPrompt?: string; coverImageId?: string }) => approveFinal(id!, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['article', id] });
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
+    },
+  });
+}
+
+export function useStepBack(id: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => stepBack(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['article', id] });
       queryClient.invalidateQueries({ queryKey: ['articles'] });

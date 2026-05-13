@@ -70,6 +70,7 @@ export interface ContentSection {
 export interface ArticleImage {
   id: string;
   url: string;
+  fullUrl?: string;
   altText: string;
   sectionSlug: string;
   position: string;
@@ -85,6 +86,7 @@ export interface ImagePlacement {
   keywords: string[];
   suggestedCount: number;
   rationale: string;
+  key?: string;
 }
 
 export interface CoverImagePlan {

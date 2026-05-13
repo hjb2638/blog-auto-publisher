@@ -6,10 +6,11 @@ interface ContentReviewProps {
   content: ArticleContent;
   isAuto: boolean;
   onApprove: (body: { sectionEdits?: Record<string, string>; revisionPrompt?: string; regenerateSections?: string[] }) => void;
+  onBack?: () => void;
   isPending: boolean;
 }
 
-export default function ContentReview({ content, isAuto, onApprove, isPending }: ContentReviewProps) {
+export default function ContentReview({ content, isAuto, onApprove, onBack, isPending }: ContentReviewProps) {
   const [activeSection, setActiveSection] = useState(0);
   const [editing, setEditing] = useState(false);
   const [sectionEdits, setSectionEdits] = useState<Record<string, string>>({});
@@ -122,7 +123,13 @@ export default function ContentReview({ content, isAuto, onApprove, isPending }:
         />
       </div>
 
-      <div className="flex justify-end gap-3">
+      <div className="flex justify-between">
+        {onBack && (
+          <button onClick={onBack} disabled={isPending} className="px-5 py-2 border border-gray-200 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-50">
+            &larr; Back
+          </button>
+        )}
+        <div className="flex gap-3 ml-auto">
         <button
           onClick={handleApprove}
           disabled={isPending}
@@ -137,6 +144,7 @@ export default function ContentReview({ content, isAuto, onApprove, isPending }:
         >
           {isPending ? 'Revising...' : 'Revise with AI →'}
         </button>
+        </div>
       </div>
     </div>
   );

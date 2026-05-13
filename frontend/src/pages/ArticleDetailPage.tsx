@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useArticle } from '../hooks/useArticle';
 import {
   useApproveOutline, useApproveContent, useApproveImageKeywords, useApproveFinal,
-  usePublishArticle, useRegenerateArticle, useDeleteArticle,
+  usePublishArticle, useRegenerateArticle, useDeleteArticle, useStepBack,
 } from '../hooks/useArticleMutations';
 import StatusStepper from '../components/common/StatusStepper';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -47,8 +47,13 @@ export default function ArticleDetailPage() {
   const publishArticle = usePublishArticle(id);
   const regenerateArticle = useRegenerateArticle(id);
   const deleteArticle = useDeleteArticle(id);
+  const stepBack = useStepBack(id);
 
   const [, setTick] = useState(0);
+
+  const handleStepBack = () => {
+    if (id) stepBack.mutate();
+  };
 
   useEffect(() => {
     if (!status || !['outline_generating', 'content_generating', 'image_searching'].includes(status)) return;
@@ -147,6 +152,7 @@ export default function ArticleDetailPage() {
           topic={article.topic}
           isAuto={article.mode === 'auto'}
           onApprove={(body) => approveOutline.mutate(body)}
+          onBack={handleStepBack}
           isPending={approveOutline.isPending}
         />
       )}
@@ -156,6 +162,7 @@ export default function ArticleDetailPage() {
           content={article.content}
           isAuto={article.mode === 'auto'}
           onApprove={(body) => approveContent.mutate(body)}
+          onBack={handleStepBack}
           isPending={approveContent.isPending}
         />
       )}
@@ -166,6 +173,7 @@ export default function ArticleDetailPage() {
           sectionNames={getSectionNames(article)}
           isAuto={article.mode === 'auto'}
           onApprove={(body) => approveImageKeywords.mutate(body)}
+          onBack={handleStepBack}
           isPending={approveImageKeywords.isPending}
         />
       )}
@@ -173,8 +181,10 @@ export default function ArticleDetailPage() {
       {status === 'images_ready' && article.images && (
         <ImageReview
           images={article.images}
+          sections={article.content?.sections}
           isAuto={article.mode === 'auto'}
           onApprove={(body) => approveFinal.mutate(body)}
+          onBack={handleStepBack}
           isPending={approveFinal.isPending}
         />
       )}
@@ -184,6 +194,7 @@ export default function ArticleDetailPage() {
           article={article}
           isPending={publishArticle.isPending}
           onPublish={(body) => publishArticle.mutate(body)}
+          onBack={handleStepBack}
         />
       )}
 
