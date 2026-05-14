@@ -38,6 +38,7 @@ export default function ArticleDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useArticle(id);
   const [showDelete, setShowDelete] = useState(false);
+  const [awaitingStream, setAwaitingStream] = useState(false);
 
   const article: Article | undefined = data?.data;
   const status = article?.status;
@@ -61,6 +62,12 @@ export default function ArticleDetailPage() {
     if (!status || !['outline_generating', 'content_generating', 'image_keywords_generating', 'image_searching'].includes(status)) return;
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(timer);
+  }, [status]);
+
+  useEffect(() => {
+    if (status && status !== 'outline_approved') {
+      setAwaitingStream(false);
+    }
   }, [status]);
 
   if (isLoading) return <LoadingSpinner message="Loading article..." />;
@@ -141,7 +148,7 @@ export default function ArticleDetailPage() {
         </div>
       )}
 
-      {status === 'content_generating' && (
+      {(status === 'content_generating' || (status === 'outline_approved' && awaitingStream)) && (
         <StreamingContent
           articleId={article.id}
           totalSections={article.outline?.sections?.length || article.content?.sections?.length || 0}
@@ -160,7 +167,7 @@ export default function ArticleDetailPage() {
           outline={article.outline}
           topic={article.topic}
           isAuto={article.mode === 'auto'}
-          onApprove={(body) => approveOutline.mutate(body)}
+          onApprove={(body) => { setAwaitingStream(true); approveOutline.mutate(body); }}
           onBack={handleStepBack}
           isPending={approveOutline.isPending}
         />

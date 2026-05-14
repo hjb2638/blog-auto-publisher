@@ -77,7 +77,11 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             section_key = f"content_{i + 1}"
             t_in = result.get("tokens_input", 0)
             t_out = result.get("tokens_output", 0)
-            token_usage[section_key] = {"input": t_in, "output": t_out}
+            article.token_usage = {
+                **token_usage,
+                section_key: {"input": t_in, "output": t_out},
+            }
+            token_usage = article.token_usage
 
             cumulative = sum(
                 stage.get("input", 0) + stage.get("output", 0)
@@ -115,7 +119,6 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             "full_html": full_html,
             "total_word_count": total_words,
         }
-        article.token_usage = token_usage
         article = await update_status(db, article, "content_ready")
         await stream_manager.send_status(article.id, "content_ready")
 

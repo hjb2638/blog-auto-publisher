@@ -136,11 +136,13 @@ async def generate_image_plan(db: AsyncSession, article: Article) -> Article:
         result = await llm_service.generate_json(prompt)
         plan = result["parsed"]
 
-        token_usage = article.token_usage or {}
         t_in = result.get("tokens_input", 0)
         t_out = result.get("tokens_output", 0)
-        token_usage["images"] = {"input": t_in, "output": t_out}
-        article.token_usage = token_usage
+        article.token_usage = {
+            **(article.token_usage or {}),
+            "images": {"input": t_in, "output": t_out},
+        }
+        token_usage = article.token_usage
 
         cumulative = sum(
             stage.get("input", 0) + stage.get("output", 0)

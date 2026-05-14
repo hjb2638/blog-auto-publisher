@@ -158,8 +158,12 @@ class WordPressService:
                     if existing:
                         skipped += 1
                         continue
+                    topic = post["title"]["rendered"]
+                    if len(topic) < 10:
+                        topic = topic + " - Technical Article"
+                    topic = topic[:500]
                     article = Article(
-                        topic=post["title"]["rendered"][:500],
+                        topic=topic,
                         mode="manual",
                         status="published",
                         source="wordpress",
@@ -169,11 +173,12 @@ class WordPressService:
                         full_html=post["content"]["rendered"],
                     )
                     db.add(article)
+                    await db.commit()
                     imported += 1
                 except Exception as e:
+                    await db.rollback()
                     logger.warning("WP sync: failed to import post %d: %s", post.get("id"), e)
                     failed += 1
-            await db.commit()
 
         logger.info("WP sync: fetched=%d imported=%d skipped=%d failed=%d", total_fetched, imported, skipped, failed)
         return {"total_fetched": total_fetched, "imported": imported, "skipped": skipped, "failed": failed}

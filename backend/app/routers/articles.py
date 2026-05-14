@@ -211,13 +211,11 @@ async def approve_image_keywords(
         return {"success": True, "data": svc.article_to_detail(article)}
 
     if not svc._plan_changed(article.image_plan, body.plan.model_dump() if body.plan else None) and article.images:
-        article = await svc.update_status(db, article, "image_keywords_ready")
         article = await svc.update_status(db, article, "images_ready")
         await db.commit()
         await db.refresh(article)
         return {"success": True, "data": svc.article_to_detail(article)}
 
-    article = await svc.update_status(db, article, "image_keywords_ready")
     await db.commit()
     await db.refresh(article)
     background_tasks.add_task(_search_images_bg, article.id)
