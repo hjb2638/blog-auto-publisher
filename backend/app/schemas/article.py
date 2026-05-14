@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -198,6 +199,13 @@ class WPTag(CamelModel):
 class BatchActionRequest(CamelModel):
     ids: list[UUID]
     action: str
+
+
+class UpdateWpRequest(CamelModel):
+    title: str | None = None
+    content: str | None = None
+    status: Literal["publish", "draft"] | None = None
+    slug: str | None = None
 
 
 class RegenerateRequest(CamelModel):
