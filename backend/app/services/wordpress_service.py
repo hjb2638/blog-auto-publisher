@@ -7,6 +7,32 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 
+KNOWN_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".svg"}
+
+MIME_TO_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+    "image/svg+xml": ".svg",
+}
+
+
+def _ensure_filename_extension(filename: str, content_type: str | None) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if f".{ext}" in KNOWN_IMAGE_EXTENSIONS:
+        return filename
+    if content_type:
+        mime = content_type.split(";")[0].strip().lower()
+        if mime in MIME_TO_EXT:
+            return filename + MIME_TO_EXT[mime]
+        if "/" in mime:
+            return f"{filename}.{mime.split('/')[1]}"
+    return filename + ".jpg"
+
+
 def _is_retryable(e: BaseException) -> bool:
     if isinstance(e, httpx.HTTPStatusError):
         code = e.response.status_code
@@ -76,6 +102,7 @@ class WordPressService:
             img_resp.raise_for_status()
             filename = image_url.split("/")[-1].split("?")[0] or "image.jpg"
             content_type = img_resp.headers.get("content-type", "image/jpeg")
+            filename = _ensure_filename_extension(filename, content_type)
             files = {"file": (filename, img_resp.content, content_type)}
             resp = await client.post(
                 f"{self.api_url}/wp/v2/media",
