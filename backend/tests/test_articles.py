@@ -107,6 +107,7 @@ async def test_create_article_success(client: AsyncClient):
 
 
 from sqlalchemy import text
+from uuid import UUID
 
 
 async def _create_test_article(db: AsyncSession, **kwargs) -> str:
@@ -134,6 +135,12 @@ async def _create_test_article(db: AsyncSession, **kwargs) -> str:
     )
     await db.commit()
     return str(article_id)
+
+
+async def _cleanup_article(db: AsyncSession, article_id: str):
+    """Delete a test article by ID, ignoring if it no longer exists."""
+    await db.execute(text("DELETE FROM articles WHERE id = :id"), {"id": UUID(article_id)})
+    await db.commit()
 
 
 class TestDeleteArticleWithWPSync:
@@ -187,8 +194,11 @@ class TestDeleteArticleWithWPSync:
     @pytest.mark.asyncio
     async def test_delete_publishing_article(self, client: AsyncClient, test_session: AsyncSession):
         article_id = await _create_test_article(test_session, status="publishing")
-        response = await client.delete(f"/api/v1/articles/{article_id}")
-        assert response.status_code == 409
+        try:
+            response = await client.delete(f"/api/v1/articles/{article_id}")
+            assert response.status_code == 409
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, client: AsyncClient):
@@ -203,44 +213,62 @@ class TestUpdateWpArticle:
     async def test_update_wp_title(self, client: AsyncClient, test_session: AsyncSession):
         from unittest.mock import AsyncMock, patch
         article_id = await _create_test_article(test_session, wp_post_id=100, outline='{"title":"Old Title","sections":[]}')
-        with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
-            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New Title"})
-            assert response.status_code == 200
-            mock_upd.assert_called_once()
-            call_args = mock_upd.call_args
-            assert call_args[0][0] == 100
-            assert call_args[1]["title"] == "New Title"
+        try:
+            with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
+                response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New Title"})
+                assert response.status_code == 200
+                mock_upd.assert_called_once()
+                call_args = mock_upd.call_args
+                assert call_args[0][0] == 100
+                assert call_args[1]["title"] == "New Title"
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_update_wp_content(self, client: AsyncClient, test_session: AsyncSession):
         from unittest.mock import AsyncMock, patch
         article_id = await _create_test_article(test_session, wp_post_id=100)
-        with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
-            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"content": "<p>new</p>"})
-            assert response.status_code == 200
+        try:
+            with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
+                response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"content": "<p>new</p>"})
+                assert response.status_code == 200
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_update_wp_status_draft(self, client: AsyncClient, test_session: AsyncSession):
         from unittest.mock import AsyncMock, patch
         article_id = await _create_test_article(test_session, wp_post_id=100)
-        with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
-            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"status": "draft"})
-            assert response.status_code == 200
+        try:
+            with patch('app.routers.articles.wordpress_service.update_post', new_callable=AsyncMock) as mock_upd:
+                response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"status": "draft"})
+                assert response.status_code == 200
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_update_wp_not_published(self, client: AsyncClient, test_session: AsyncSession):
         article_id = await _create_test_article(test_session, status="content_ready", wp_post_id=None)
-        response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New"})
-        assert response.status_code == 409
+        try:
+            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New"})
+            assert response.status_code == 409
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_update_wp_no_wp_post_id(self, client: AsyncClient, test_session: AsyncSession):
         article_id = await _create_test_article(test_session, status="published", wp_post_id=None)
-        response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New"})
-        assert response.status_code == 409
+        try:
+            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"title": "New"})
+            assert response.status_code == 409
+        finally:
+            await _cleanup_article(test_session, article_id)
 
     @pytest.mark.asyncio
     async def test_update_wp_invalid_status(self, client: AsyncClient, test_session: AsyncSession):
         article_id = await _create_test_article(test_session, wp_post_id=100)
-        response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"status": "invalid"})
-        assert response.status_code == 422
+        try:
+            response = await client.post(f"/api/v1/articles/{article_id}/update-wp", json={"status": "invalid"})
+            assert response.status_code == 422
+        finally:
+            await _cleanup_article(test_session, article_id)
