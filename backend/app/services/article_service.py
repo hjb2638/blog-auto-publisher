@@ -24,8 +24,9 @@ VALID_TRANSITIONS = {
     "outline_approved": {"content_generating", "cancelled"},
     "content_generating": {"content_ready", "failed"},
     "content_ready": {"content_approved", "content_generating", "outline_ready", "cancelled"},
-    "content_approved": {"image_keywords_ready", "cancelled"},
-    "image_keywords_ready": {"image_searching", "image_keywords_ready", "content_ready", "cancelled"},
+    "content_approved": {"image_keywords_generating", "cancelled"},
+    "image_keywords_generating": {"image_keywords_ready", "failed"},
+    "image_keywords_ready": {"image_searching", "image_keywords_generating", "content_ready", "cancelled"},
     "image_searching": {"images_ready", "failed"},
     "images_ready": {"final_approved", "image_searching", "image_keywords_ready", "cancelled"},
     "final_approved": {"publishing", "images_ready", "cancelled"},
@@ -33,7 +34,7 @@ VALID_TRANSITIONS = {
     "failed": {"outline_generating", "content_generating", "image_searching", "publishing"},
 }
 
-GENERATING_STATES = {"outline_generating", "content_generating", "image_searching", "publishing"}
+GENERATING_STATES = {"outline_generating", "content_generating", "image_keywords_generating", "image_searching", "publishing"}
 
 
 def validate_transition(from_status: str, to_status: str) -> bool:
@@ -124,6 +125,8 @@ def article_to_detail(a: Article) -> ArticleDetail:
         wp_post_url=a.wp_post_url,
         wp_slug=a.wp_slug,
         error_message=a.error_message,
+        token_usage=a.token_usage,
+        source=a.source,
         version=a.version,
         created_at=a.created_at,
         updated_at=a.updated_at,

@@ -12,6 +12,24 @@ from app.services.stream_service import stream_manager
 from app.core.config import settings
 from app.utils.logger import logger
 
+_unsplash_remaining: int | None = None
+_unsplash_limit: int = 50
+
+
+def get_unsplash_remaining() -> int | None:
+    return _unsplash_remaining
+
+
+def get_unsplash_limit() -> int:
+    return _unsplash_limit
+
+
+def _update_rate_limit(headers: dict) -> None:
+    global _unsplash_remaining
+    remaining = headers.get("X-Ratelimit-Remaining")
+    if remaining is not None:
+        _unsplash_remaining = int(remaining)
+
 
 async def _search_images(section_heading: str, content_preview: str) -> list[dict]:
     prompt = IMAGE_KEYWORD_PROMPT_TEMPLATE.format(
@@ -39,12 +57,14 @@ async def _search_images(section_heading: str, content_preview: str) -> list[dic
                     headers={"Accept-Version": "v1", "Authorization": f"Client-ID {settings.unsplash_access_key.get_secret_value()}"},
                 )
                 if resp.status_code == 200:
+                    _update_rate_limit(resp.headers)
                     data = resp.json()
                     for photo in data.get("results", []):
                         images.append({
                             "id": photo["id"],
                             "url": photo["urls"]["small"],
                             "full_url": photo["urls"]["regular"],
+                            "thumb_url": photo["urls"]["thumb"],
                             "alt_text": keyword,
                             "source": "unsplash",
                             "source_url": photo["links"]["html"],
@@ -71,12 +91,14 @@ async def _search_images_by_keywords(keywords: list[str], count: int) -> list[di
                     headers={"Accept-Version": "v1", "Authorization": f"Client-ID {settings.unsplash_access_key.get_secret_value()}"},
                 )
                 if resp.status_code == 200:
+                    _update_rate_limit(resp.headers)
                     data = resp.json()
                     for photo in data.get("results", [])[:per_keyword]:
                         images.append({
                             "id": photo["id"],
                             "url": photo["urls"]["small"],
                             "full_url": photo["urls"]["regular"],
+                            "thumb_url": photo["urls"]["thumb"],
                             "alt_text": keyword,
                             "source": "unsplash",
                             "source_url": photo["links"]["html"],
@@ -88,8 +110,8 @@ async def _search_images_by_keywords(keywords: list[str], count: int) -> list[di
 
 
 async def generate_image_plan(db: AsyncSession, article: Article) -> Article:
-    article = await update_status(db, article, "image_keywords_ready")
-    await stream_manager.send_status(article.id, "image_keywords_ready")
+    article = await update_status(db, article, "image_keywords_generating")
+    await stream_manager.send_status(article.id, "image_keywords_generating")
 
     outline = article.outline or {}
     content = article.content or {}
@@ -113,7 +135,17 @@ async def generate_image_plan(db: AsyncSession, article: Article) -> Article:
     try:
         result = await llm_service.generate_json(prompt)
         plan = result["parsed"]
+
+        token_usage = article.token_usage or {}
+        token_usage["images"] = {
+            "input": result.get("tokens_input", 0),
+            "output": result.get("tokens_output", 0),
+        }
+        article.token_usage = token_usage
+
         article.image_plan = plan
+        article = await update_status(db, article, "image_keywords_ready")
+        await stream_manager.send_status(article.id, "image_keywords_ready")
         logger.info("Image plan generated: id=%s inline=%d cover=%s",
                      article.id,
                      len(plan.get("inline_images", [])),

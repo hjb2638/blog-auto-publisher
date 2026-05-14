@@ -1,8 +1,25 @@
-import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { fetchArticles } from '../../api/articles';
 import StatusBadge from '../common/StatusBadge';
 import type { ArticleListItem } from '../../types';
+
+function NavItem({ href, label, active }: { href: string; label: string; active: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(href)}
+      className={`w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm font-medium
+        transition-colors duration-100
+        ${active
+          ? 'bg-white text-gray-900 shadow-sm border border-gray-200/80'
+          : 'text-gray-500 hover:text-gray-900 hover:bg-white/60'
+        }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -18,57 +35,57 @@ export default function Sidebar() {
   const articles = data?.data || [];
 
   return (
-    <aside className="w-[280px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-gray-100">
-        <button
-          onClick={() => navigate('/new')}
-          className="w-full py-2 px-4 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
-        >
-          + New Article
-        </button>
-      </div>
-      <nav className="flex-1 overflow-y-auto">
-        <div className="px-4 py-2">
-          <button
-            onClick={() => navigate('/articles')}
-            className={`w-full text-left px-3 py-2 text-sm rounded-md ${
-              location.pathname === '/articles' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            All Articles
-          </button>
-        </div>
-        <div className="px-4 py-1">
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Recent</span>
-        </div>
-        {isLoading ? (
-          <div className="p-4 text-sm text-gray-400">Loading...</div>
-        ) : articles.length === 0 ? (
-          <div className="p-4 text-sm text-gray-400">No articles yet</div>
-        ) : (
-          <ul>
-            {articles.slice(0, 10).map((article: ArticleListItem) => (
-              <li key={article.id}>
-                <button
-                  onClick={() => navigate(`/articles/${article.id}`)}
-                  className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-50 ${
-                    id === article.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
-                  }`}
-                >
-                  <div className="text-sm font-medium text-gray-900 truncate">
-                    {article.topic.length > 60 ? article.topic.slice(0, 60) + '...' : article.topic}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <StatusBadge status={article.status} />
-                    <span className="text-xs text-gray-400">
-                      {new Date(article.updatedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+    <aside className="w-60 border-r border-gray-200/80 bg-gray-50/50 min-h-screen flex flex-col flex-shrink-0">
+      <nav className="p-4 space-y-6 flex-1 overflow-y-auto">
+        <section>
+          <h3 className="px-2 mb-1 text-xs font-medium text-gray-400 uppercase tracking-wider">
+            Create
+          </h3>
+          <NavItem href="/new" label="New Article" active={location.pathname === '/new'} />
+        </section>
+        <section>
+          <h3 className="px-2 mb-1 text-xs font-medium text-gray-400 uppercase tracking-wider">
+            Manage
+          </h3>
+          <NavItem href="/articles" label="All Articles" active={location.pathname === '/articles'} />
+        </section>
+        <section>
+          <h3 className="px-2 mb-1 text-xs font-medium text-gray-400 uppercase tracking-wider">
+            Monitor
+          </h3>
+          <NavItem href="/dashboard" label="Dashboard" active={location.pathname === '/dashboard'} />
+        </section>
+
+        <section>
+          <h3 className="px-2 mb-1 text-xs font-medium text-gray-400 uppercase tracking-wider">
+            Recent
+          </h3>
+          {isLoading ? (
+            <div className="p-2 text-sm text-gray-400">Loading...</div>
+          ) : articles.length === 0 ? (
+            <div className="p-2 text-sm text-gray-400">No articles</div>
+          ) : (
+            <ul className="space-y-0.5">
+              {articles.slice(0, 10).map((article: ArticleListItem) => (
+                <li key={article.id}>
+                  <button
+                    onClick={() => navigate(`/articles/${article.id}`)}
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-sm hover:bg-white/60 transition-colors ${
+                      id === article.id ? 'bg-white shadow-sm border border-gray-200/80' : ''
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {article.topic.length > 50 ? article.topic.slice(0, 50) + '...' : article.topic}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <StatusBadge status={article.status} />
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </nav>
     </aside>
   );

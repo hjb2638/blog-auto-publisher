@@ -35,6 +35,14 @@ async def generate_outline(db: AsyncSession, article: Article) -> Article:
         result = await llm_service.generate_json(prompt)
         outline = result["parsed"]
 
+        article.token_usage = {
+            **(article.token_usage or {}),
+            "outline": {
+                "input": result.get("tokens_input", 0),
+                "output": result.get("tokens_output", 0),
+            },
+        }
+
         for section in outline.get("sections", []):
             if "slug" not in section or not section["slug"]:
                 section["slug"] = _slugify(section.get("heading", f"section-{uuid.uuid4().hex[:8]}"))

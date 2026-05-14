@@ -33,6 +33,7 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
 
     total = len(sections)
     language = "Chinese" if any('一' <= c <= '鿿' for c in article.topic) else "English"
+    token_usage = article.token_usage or {}
 
     try:
         for i, section in enumerate(sections):
@@ -73,6 +74,12 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             html = sanitize_html(result["content"])
             word_count = _count_words(html)
 
+            section_key = f"content_{i + 1}"
+            token_usage[section_key] = {
+                "input": result.get("tokens_input", 0),
+                "output": result.get("tokens_output", 0),
+            }
+
             existing_content.append({
                 "heading": heading,
                 "slug": slug,
@@ -83,7 +90,9 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             await stream_manager.send(article.id, "section_complete", {
                 "section_index": i + 1,
                 "heading": heading,
+                "slug": slug,
                 "word_count": word_count,
+                "html": html,
             })
 
         full_html = "\n".join(s.get("html", "") for s in existing_content)
@@ -94,6 +103,7 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             "full_html": full_html,
             "total_word_count": total_words,
         }
+        article.token_usage = token_usage
         article = await update_status(db, article, "content_ready")
         await stream_manager.send_status(article.id, "content_ready")
 

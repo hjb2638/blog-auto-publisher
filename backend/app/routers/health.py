@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.dependencies import get_session
 from app.schemas.article import HealthResponse
+from app.services.image_service import get_unsplash_remaining, get_unsplash_limit
 
 router = APIRouter(tags=["health"])
 
@@ -43,5 +44,22 @@ async def health_check(session: AsyncSession = Depends(get_session)):
             "database": db_status,
             "llm_service": llm_status,
             "wordpress": wp_status,
+        },
+    }
+
+
+@router.get("/api-status")
+async def api_status():
+    return {
+        "success": True,
+        "data": {
+            "unsplash": {
+                "remaining": get_unsplash_remaining(),
+                "limit": get_unsplash_limit(),
+            },
+            "llm": {
+                "base_url": settings.llm_base_url,
+                "model": settings.llm_model,
+            },
         },
     }

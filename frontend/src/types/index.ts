@@ -1,7 +1,7 @@
 export type ArticleStatus =
   | 'draft' | 'outline_generating' | 'outline_ready' | 'outline_approved'
   | 'content_generating' | 'content_ready' | 'content_approved'
-  | 'image_keywords_ready' | 'image_searching' | 'images_ready' | 'final_approved'
+  | 'image_keywords_generating' | 'image_keywords_ready' | 'image_searching' | 'images_ready' | 'final_approved'
   | 'publishing' | 'published' | 'failed' | 'cancelled';
 
 export type ArticleMode = 'manual' | 'auto';
@@ -32,6 +32,8 @@ export interface Article {
   wpPostUrl: string | null;
   wpSlug: string | null;
   errorMessage: string | null;
+  tokenUsage: Record<string, { input: number; output: number }> | null;
+  source: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -71,6 +73,7 @@ export interface ArticleImage {
   id: string;
   url: string;
   fullUrl?: string;
+  thumbUrl?: string;
   altText: string;
   sectionSlug: string;
   position: string;

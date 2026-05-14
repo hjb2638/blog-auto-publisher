@@ -2,6 +2,7 @@ import math
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_session
@@ -14,6 +15,7 @@ from app.schemas.article import (
     PublishRequest,
     RegenerateRequest,
 )
+from app.models.article import Article
 from app.services import article_service as svc
 from app.services.content_service import generate_content, regenerate_sections, revise_sections
 from app.services.image_service import generate_image_plan, search_and_insert_images, insert_images_into_content
@@ -21,6 +23,7 @@ from app.services.outline_service import generate_outline, revise_outline
 from app.services.taxonomy_service import match_or_create_taxonomy
 from app.services.wordpress_service import wordpress_service
 from app.utils.logger import logger
+from app.utils.sanitizer import sanitize_html
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -306,6 +309,7 @@ async def regenerate_article(
 STEP_BACK_MAP = {
     "outline_ready": "draft",
     "content_ready": "outline_ready",
+    "image_keywords_generating": "content_ready",
     "image_keywords_ready": "content_ready",
     "images_ready": "image_keywords_ready",
     "final_approved": "images_ready",
@@ -337,3 +341,31 @@ async def delete_article(article_id: UUID, db: AsyncSession = Depends(get_sessio
     await db.delete(article)
     await db.commit()
     return {"success": True, "data": {"deleted": True, "id": str(article_id)}}
+
+
+@router.post("/import-wp-posts")
+async def import_wp_posts(db: AsyncSession = Depends(get_session)):
+    wp_posts = await wordpress_service.get_posts(per_page=100)
+    imported, skipped = 0, 0
+    for post in wp_posts:
+        existing = (await db.execute(
+            select(Article).where(Article.wp_post_id == post["id"])
+        )).scalar()
+        if existing:
+            skipped += 1
+            continue
+        article = Article(
+            topic=post["title"]["rendered"][:500],
+            mode="manual",
+            status="published",
+            source="wordpress",
+            wp_post_id=post["id"],
+            wp_post_url=post["link"],
+            wp_slug=post["slug"],
+            full_html=sanitize_html(post["content"]["rendered"]),
+        )
+        db.add(article)
+        imported += 1
+    await db.commit()
+    logger.info("WP import: imported=%d skipped=%d", imported, skipped)
+    return {"success": True, "data": {"imported": imported, "skipped": skipped}}

@@ -16,6 +16,7 @@ import ImageReview from '../components/articles/ImageReview';
 import FinalReview from '../components/articles/FinalReview';
 import ContentRenderer from '../components/articles/ContentRenderer';
 import GenerationProgress from '../components/articles/GenerationProgress';
+import StreamingContent from '../components/articles/StreamingContent';
 import type { Article } from '../types';
 
 function getElapsed(startedAt: string): number {
@@ -56,7 +57,7 @@ export default function ArticleDetailPage() {
   };
 
   useEffect(() => {
-    if (!status || !['outline_generating', 'content_generating', 'image_searching'].includes(status)) return;
+    if (!status || !['outline_generating', 'content_generating', 'image_keywords_generating', 'image_searching'].includes(status)) return;
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(timer);
   }, [status]);
@@ -73,7 +74,7 @@ export default function ArticleDetailPage() {
     );
   }
 
-  const isGenerating = ['outline_generating', 'content_generating', 'image_searching'].includes(status || '');
+  const isGenerating = ['outline_generating', 'content_generating', 'image_keywords_generating', 'image_searching'].includes(status || '');
   const elapsed = getElapsed(article.createdAt);
 
   return (
@@ -139,7 +140,14 @@ export default function ArticleDetailPage() {
         </div>
       )}
 
-      {isGenerating && article.progress && (
+      {status === 'content_generating' && (
+        <StreamingContent
+          articleId={article.id}
+          totalSections={article.outline?.sections?.length || article.content?.sections?.length || 0}
+        />
+      )}
+
+      {isGenerating && status !== 'content_generating' && article.progress && (
         <GenerationProgress
           progress={article.progress}
           elapsedSeconds={elapsed}

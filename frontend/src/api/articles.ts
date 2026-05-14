@@ -70,3 +70,23 @@ export async function fetchWPTags() {
   const { data } = await apiClient.get<ApiEnvelope<WPTag[]>>('/wordpress/tags');
   return data;
 }
+
+export async function fetchWPPosts(params?: { page?: number; perPage?: number; status?: string }) {
+  const { data } = await apiClient.get<ApiEnvelope<unknown[]>>('/wordpress/posts', { params });
+  return data;
+}
+
+export async function importWPPosts() {
+  const { data } = await apiClient.post<ApiEnvelope<{ imported: number; skipped: number }>>('/articles/import-wp-posts');
+  return data;
+}
+
+export async function updateWPPost(postId: number, body: Record<string, unknown>) {
+  const { data } = await apiClient.put<ApiEnvelope<unknown>>(`/wordpress/posts/${postId}`, body);
+  return data;
+}
+
+export async function deleteWPPost(postId: number) {
+  const { data } = await apiClient.delete<ApiEnvelope<unknown>>(`/wordpress/posts/${postId}`);
+  return data;
+}

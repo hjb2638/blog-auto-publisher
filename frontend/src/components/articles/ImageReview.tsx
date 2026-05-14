@@ -131,11 +131,18 @@ export default function ImageReview({ images, sections, isAuto, onApprove, onRem
                 } ${!loadedImages.has(img.id) ? 'border-dashed' : ''}`}
                 onClick={() => setCoverImageId(img.id)}
               >
+                {!loadedImages.has(img.id) && (
+                  <img
+                    src={img.thumbUrl || img.url}
+                    alt=""
+                    className="w-full h-40 object-cover filter blur-xl scale-110"
+                  />
+                )}
                 {!loadedImages.has(img.id) && <ImageSkeleton />}
                 <img
                   src={img.url}
                   alt={altEdits[img.id] ?? img.altText}
-                  className={`w-full h-40 object-cover ${!loadedImages.has(img.id) ? 'hidden' : ''}`}
+                  className={`w-full h-40 object-cover transition-opacity duration-500 ${!loadedImages.has(img.id) ? 'opacity-0 absolute inset-0' : 'opacity-100'}`}
                   loading="lazy"
                   onLoad={() => onImageLoad(img.id)}
                 />
@@ -223,11 +230,18 @@ export default function ImageReview({ images, sections, isAuto, onApprove, onRem
               <div className="space-y-3">
                 {sectionImages.map((img) => (
                   <div key={img.id} className="relative">
+                    {!loadedImages.has(img.id) && (
+                      <img
+                        src={img.thumbUrl || img.url}
+                        alt=""
+                        className="w-full h-40 object-cover rounded-lg border border-gray-100 filter blur-xl scale-110"
+                      />
+                    )}
                     {!loadedImages.has(img.id) && <ImageSkeleton />}
                     <img
                       src={img.url}
                       alt={altEdits[img.id] ?? img.altText}
-                      className={`w-full h-40 object-cover rounded-lg border border-gray-100 ${!loadedImages.has(img.id) ? 'hidden' : ''}`}
+                      className={`w-full h-40 object-cover rounded-lg border border-gray-100 transition-opacity duration-500 ${!loadedImages.has(img.id) ? 'opacity-0 absolute inset-0' : 'opacity-100'}`}
                       loading="lazy"
                       onLoad={() => onImageLoad(img.id)}
                     />

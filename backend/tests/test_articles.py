@@ -82,6 +82,8 @@ async def test_create_article_success(client: AsyncClient):
     mock_article.wp_post_url = None
     mock_article.wp_slug = None
     mock_article.error_message = None
+    mock_article.token_usage = None
+    mock_article.source = "local"
     mock_article.created_at = "2024-01-01T00:00:00Z"
     mock_article.updated_at = "2024-01-01T00:00:00Z"
 

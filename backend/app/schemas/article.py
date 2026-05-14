@@ -66,6 +66,8 @@ class ArticleContentSchema(CamelModel):
 class ArticleImageSchema(CamelModel):
     id: str
     url: str
+    full_url: str | None = None
+    thumb_url: str | None = None
     alt_text: str
     section_slug: str
     position: str = "before"
@@ -113,6 +115,8 @@ class ArticleDetail(CamelModel):
     wp_post_url: str | None = None
     wp_slug: str | None = None
     error_message: str | None = None
+    token_usage: dict | None = None
+    source: str = "local"
     version: int
     created_at: datetime
     updated_at: datetime
