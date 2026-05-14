@@ -4,6 +4,13 @@ from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_api: tests that make real HTTP requests to WordPress (opt-in via RUN_REAL_API_TESTS=1)",
+    )
+
 from app.main import app
 from app.core.dependencies import get_settings, get_session
 from app.core.config import Settings
