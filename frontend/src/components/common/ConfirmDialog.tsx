@@ -7,11 +7,12 @@ interface ConfirmDialogProps {
   variant?: 'primary' | 'danger';
   onConfirm: () => void;
   onCancel: () => void;
+  checkbox?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
 }
 
 export default function ConfirmDialog({
   open, title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel',
-  variant = 'primary', onConfirm, onCancel,
+  variant = 'primary', onConfirm, onCancel, checkbox,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
@@ -21,6 +22,17 @@ export default function ConfirmDialog({
       <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
         <h3 className="text-lg font-medium text-gray-900">{title}</h3>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
+        {checkbox && (
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={checkbox.checked}
+              className="rounded border-gray-300"
+              onChange={(e) => checkbox.onChange(e.target.checked)}
+            />
+            {checkbox.label}
+          </label>
+        )}
         <div className="mt-4 flex justify-end gap-3">
           <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
             {cancelLabel}

@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createArticle, approveOutline, approveContent, approveImageKeywords, approveFinal,
-  publishArticle, regenerateArticle, deleteArticle, stepBack,
+  publishArticle, regenerateArticle, deleteArticle, stepBack, updateWpArticle,
 } from '../api/articles';
-import type { CreateArticleRequest, PublishRequest, ImagePlan } from '../types';
+import type { CreateArticleRequest, PublishRequest, UpdateWpRequest, ImagePlan } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 export function useCreateArticle() {
@@ -100,10 +100,23 @@ export function useDeleteArticle(id: string | undefined) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   return useMutation({
-    mutationFn: () => deleteArticle(id!),
+    mutationFn: (deleteWp: boolean = false) => deleteArticle(id!, deleteWp),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['articles'] });
       navigate('/');
+    },
+  });
+}
+
+export function useUpdateWpArticle(id: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpdateWpRequest) => updateWpArticle(id!, body),
+    onSuccess: (res) => {
+      if (res.data) {
+        queryClient.setQueryData(['article', id], res);
+      }
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
     },
   });
 }

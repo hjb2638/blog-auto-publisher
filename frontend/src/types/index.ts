@@ -144,6 +144,13 @@ export interface PublishRequest {
   autoCreateTaxonomy?: boolean;
 }
 
+export interface UpdateWpRequest {
+  title?: string;
+  content?: string;
+  status?: 'publish' | 'draft';
+  slug?: string;
+}
+
 export interface WPCategory {
   id: number;
   name: string;

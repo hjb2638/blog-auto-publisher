@@ -5,6 +5,7 @@ import { useArticle } from '../hooks/useArticle';
 import {
   useApproveOutline, useApproveContent, useApproveImageKeywords, useApproveFinal,
   usePublishArticle, useRegenerateArticle, useDeleteArticle, useStepBack,
+  useUpdateWpArticle,
 } from '../hooks/useArticleMutations';
 import StatusStepper from '../components/common/StatusStepper';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -53,11 +54,33 @@ export default function ArticleDetailPage() {
   const regenerateArticle = useRegenerateArticle(id);
   const deleteArticle = useDeleteArticle(id);
   const stepBack = useStepBack(id);
+  const updateWp = useUpdateWpArticle(id);
+
+  const [showEditor, setShowEditor] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [deleteWp, setDeleteWp] = useState(true);
 
   const [, setTick] = useState(0);
 
   const handleStepBack = () => {
     if (id) stepBack.mutate();
+  };
+
+  const handleEdit = () => {
+    if (!article) return;
+    setEditTitle(article.outline?.title || article.topic);
+    setEditContent(article.fullHtml || '');
+    setShowEditor(true);
+  };
+
+  const handleUnpublish = () => {
+    updateWp.mutate({ status: 'draft' });
+  };
+
+  const handleUpdateWp = () => {
+    updateWp.mutate({ title: editTitle, content: editContent });
+    setShowEditor(false);
   };
 
   useEffect(() => {
@@ -106,17 +129,33 @@ export default function ArticleDetailPage() {
               Retry Outline
             </button>
           )}
-          {status === 'published' && article.wpPostUrl && (
-            <a
-              href={article.wpPostUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700"
-            >
-              View Live
-            </a>
+          {status === 'published' && article.wpPostId && (
+            <>
+              {article.wpPostUrl && (
+                <a
+                  href={article.wpPostUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700"
+                >
+                  View Live
+                </a>
+              )}
+              <button onClick={handleEdit}
+                      className="px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-md">
+                Edit
+              </button>
+              <button onClick={handleUnpublish} disabled={updateWp.isPending}
+                      className="px-4 py-2 text-sm text-yellow-600 hover:bg-yellow-50 rounded-md disabled:opacity-50">
+                Unpublish
+              </button>
+              <button onClick={() => setShowDelete(true)}
+                      className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md">
+                Delete
+              </button>
+            </>
           )}
-          {status !== 'publishing' && (
+          {status !== 'published' && status !== 'publishing' && (
             <button
               onClick={() => setShowDelete(true)}
               className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md"
@@ -136,24 +175,52 @@ export default function ArticleDetailPage() {
       )}
 
       {status === 'published' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
-          <div className="text-green-600 text-lg">Published!</div>
-          {article.wpPostUrl && (
-            <a
-              href={article.wpPostUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-block text-blue-600 text-sm hover:underline break-all"
-            >
-              {article.wpPostUrl}
-            </a>
-          )}
-          {article.fullHtml && (
-            <div className="mt-6 text-left">
-              <ContentRenderer html={article.fullHtml} />
+        <>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
+            <div className="text-green-600 text-lg">Published!</div>
+            {article.wpPostUrl && (
+              <a
+                href={article.wpPostUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-blue-600 text-sm hover:underline break-all"
+              >
+                {article.wpPostUrl}
+              </a>
+            )}
+            {article.fullHtml && (
+              <div className="mt-6 text-left">
+                <ContentRenderer html={article.fullHtml} />
+              </div>
+            )}
+          </div>
+
+          {showEditor && (
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 mt-6 space-y-4">
+              <h3 className="text-sm font-semibold text-gray-900">Edit Published Article</h3>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Title</label>
+                <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
+                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Content (HTML)</label>
+                <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={20}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleUpdateWp} disabled={updateWp.isPending}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md disabled:opacity-50">
+                  Save to WordPress
+                </button>
+                <button onClick={() => setShowEditor(false)}
+                        className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-md">
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {(status === 'content_generating' || (status === 'outline_approved' && awaitingStream)) && (
@@ -260,9 +327,10 @@ export default function ArticleDetailPage() {
         message="Are you sure you want to delete this article? This action cannot be undone."
         confirmLabel="Delete"
         variant="danger"
+        checkbox={article.wpPostId ? { label: 'Also delete from WordPress', checked: deleteWp, onChange: setDeleteWp } : undefined}
         onConfirm={() => {
           setShowDelete(false);
-          deleteArticle.mutate();
+          deleteArticle.mutate(deleteWp);
         }}
         onCancel={() => setShowDelete(false)}
       />
