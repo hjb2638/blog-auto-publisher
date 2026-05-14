@@ -116,6 +116,43 @@ class WordPressService:
         logger.info("WP upload media: url=%s id=%s", image_url, media["id"])
         return media
 
+    async def update_post(
+        self,
+        post_id: int,
+        *,
+        title: str | None = None,
+        content: str | None = None,
+        status: str | None = None,
+        slug: str | None = None,
+    ) -> dict:
+        data: dict = {}
+        if title is not None:
+            data["title"] = title
+        if content is not None:
+            data["content"] = content
+        if status is not None:
+            data["status"] = status
+        if slug is not None:
+            data["slug"] = slug
+        if not data:
+            return {}
+        logger.info("WP update post: id=%d fields=%s", post_id, list(data.keys()))
+        return await self._request("POST", f"/wp/v2/posts/{post_id}", data)
+
+    async def delete_post(self, post_id: int, force: bool = True) -> bool:
+        try:
+            path = f"/wp/v2/posts/{post_id}"
+            if force:
+                path += "?force=true"
+            await self._request("DELETE", path)
+            logger.info("WP delete post: id=%d", post_id)
+            return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.info("WP post already deleted: id=%d", post_id)
+                return False
+            raise
+
     async def get_categories(self) -> list[dict]:
         return await self._request("GET", "/wp/v2/categories?per_page=100")
 

@@ -525,7 +525,7 @@ class TestDeletePost:
     @pytest.mark.asyncio
     async def test_delete_404_already_gone(self):
         from app.services.wordpress_service import WordPressService
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, patch, MagicMock
         import httpx
 
         svc = WordPressService()
