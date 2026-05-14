@@ -152,6 +152,7 @@ async def revise_sections(
     sections = content_data.get("sections", [])
 
     slugs_to_revise = set(slugs) if slugs else {s.get("slug", "") for s in sections}
+    token_usage = article.token_usage or {}
 
     try:
         for section in sections:
@@ -170,6 +171,14 @@ async def revise_sections(
             html = sanitize_html(result["content"])
             section["html"] = html
             section["word_count"] = _count_words(html)
+
+            t_in = result.get("tokens_input", 0)
+            t_out = result.get("tokens_output", 0)
+            article.token_usage = {
+                **token_usage,
+                f"revision_{slug}": {"input": t_in, "output": t_out},
+            }
+            token_usage = article.token_usage
 
         full_html = "\n".join(s.get("html", "") for s in sections)
         total_words = sum(s.get("word_count", 0) for s in sections)

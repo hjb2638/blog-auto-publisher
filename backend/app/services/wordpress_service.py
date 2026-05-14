@@ -72,7 +72,7 @@ class WordPressService:
     )
     async def upload_media(self, image_url: str, alt_text: str = "") -> dict:
         async with httpx.AsyncClient(timeout=30) as client:
-            img_resp = await client.get(image_url)
+            img_resp = await client.get(image_url, headers={"User-Agent": "blog-project/1.0"})
             img_resp.raise_for_status()
             filename = image_url.split("/")[-1].split("?")[0] or "image.jpg"
             files = {"file": (filename, img_resp.content, "image/jpeg")}

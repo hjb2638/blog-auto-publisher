@@ -155,6 +155,12 @@ export default function ArticleDetailPage() {
         />
       )}
 
+      {['content_approved', 'image_keywords_generating'].includes(status || '') && (
+        <div className="bg-white border border-gray-200/80 rounded-2xl shadow-sm p-6 text-center">
+          <LoadingSpinner message="Preparing next stage..." />
+        </div>
+      )}
+
       {isGenerating && status !== 'content_generating' && article.progress && (
         <GenerationProgress
           progress={article.progress}

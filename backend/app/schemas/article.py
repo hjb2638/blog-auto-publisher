@@ -74,6 +74,7 @@ class ArticleImageSchema(CamelModel):
     source: str = ""
     source_url: str = ""
     photographer: str = ""
+    type: str = "inline"
 
 
 class ProgressSchema(CamelModel):

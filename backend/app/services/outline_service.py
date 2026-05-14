@@ -80,6 +80,12 @@ async def revise_outline(db: AsyncSession, article: Article, revision_prompt: st
 
     try:
         result = await llm_service.generate_json(prompt)
+        t_in = result.get("tokens_input", 0)
+        t_out = result.get("tokens_output", 0)
+        article.token_usage = {
+            **(article.token_usage or {}),
+            "outline_revision": {"input": t_in, "output": t_out},
+        }
         outline = result["parsed"]
         for section in outline.get("sections", []):
             if "slug" not in section or not section["slug"]:

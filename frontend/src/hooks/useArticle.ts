@@ -3,7 +3,9 @@ import { fetchArticle } from '../api/articles';
 import type { Article } from '../types';
 
 function isGenerating(status: string): boolean {
-  return ['outline_generating', 'content_generating', 'image_keywords_generating', 'image_searching', 'publishing'].includes(status);
+  return ['outline_generating', 'content_generating', 'content_approved',
+          'image_keywords_generating', 'image_keywords_ready', 'image_searching',
+          'publishing'].includes(status);
 }
 
 export function useArticle(id: string | undefined) {

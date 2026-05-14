@@ -206,6 +206,13 @@ async def search_and_insert_images(db: AsyncSession, article: Article) -> Articl
                 "heading": heading,
             })
 
+            article.progress = {
+                "stage": "images",
+                "current_section": i + 1,
+                "total_sections": max(total, 1),
+                "heading": heading,
+            }
+
             found = await _search_images_by_keywords(keywords, count)
             for img in found:
                 if img["id"] in seen_ids:
