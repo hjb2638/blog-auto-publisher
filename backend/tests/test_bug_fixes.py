@@ -499,3 +499,136 @@ class TestFilenameExtension:
 
     def test_tiff_extension(self):
         assert self._call_function("scan", "image/tiff") == "scan.tiff"
+
+
+# ---------------------------------------------------------------------------
+# v1.3.3 Feature: WordPress CRUD — delete_post()
+# ---------------------------------------------------------------------------
+
+
+class TestDeletePost:
+    """delete_post must handle WP success, 404 (already deleted), 401 (auth
+    error), and 500 (retry exhausted) correctly."""
+
+    @pytest.mark.asyncio
+    async def test_delete_success(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch, MagicMock
+        import httpx
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock, return_value={"id": 1, "status": "trash"}) as mock_req:
+            result = await svc.delete_post(123)
+            assert result is True
+            mock_req.assert_called_once_with("DELETE", "/wp/v2/posts/123?force=true")
+
+    @pytest.mark.asyncio
+    async def test_delete_404_already_gone(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+        import httpx
+
+        svc = WordPressService()
+        mock_req = AsyncMock(side_effect=httpx.HTTPStatusError("Not Found", request=MagicMock(), response=MagicMock(status_code=404)))
+        with patch.object(svc, '_request', mock_req):
+            result = await svc.delete_post(456)
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_delete_401_raises(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch, MagicMock
+        import httpx
+
+        svc = WordPressService()
+        mock_req = AsyncMock(side_effect=httpx.HTTPStatusError("Unauthorized", request=MagicMock(), response=MagicMock(status_code=401)))
+        with patch.object(svc, '_request', mock_req):
+            with pytest.raises(httpx.HTTPStatusError) as exc:
+                await svc.delete_post(789)
+            assert exc.value.response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_delete_500_raises(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch, MagicMock
+        import httpx
+
+        svc = WordPressService()
+        mock_req = AsyncMock(side_effect=httpx.HTTPStatusError("Server Error", request=MagicMock(), response=MagicMock(status_code=500)))
+        with patch.object(svc, '_request', mock_req):
+            with pytest.raises(httpx.HTTPStatusError) as exc:
+                await svc.delete_post(999)
+            assert exc.value.response.status_code == 500
+
+    @pytest.mark.asyncio
+    async def test_delete_without_force(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock) as mock_req:
+            await svc.delete_post(123, force=False)
+            mock_req.assert_called_once_with("DELETE", "/wp/v2/posts/123")
+
+
+# ---------------------------------------------------------------------------
+# v1.3.3 Feature: WordPress CRUD — update_post()
+# ---------------------------------------------------------------------------
+
+
+class TestUpdatePost:
+    """update_post must send only the provided fields and handle edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_update_title_only(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock, return_value={"id": 1}) as mock_req:
+            await svc.update_post(1, title="New Title")
+            mock_req.assert_called_once_with("POST", "/wp/v2/posts/1", {"title": "New Title"})
+
+    @pytest.mark.asyncio
+    async def test_update_content_only(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock) as mock_req:
+            await svc.update_post(1, content="<p>New content</p>")
+            mock_req.assert_called_once_with("POST", "/wp/v2/posts/1", {"content": "<p>New content</p>"})
+
+    @pytest.mark.asyncio
+    async def test_update_status_only(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock) as mock_req:
+            await svc.update_post(1, status="draft")
+            mock_req.assert_called_once_with("POST", "/wp/v2/posts/1", {"status": "draft"})
+
+    @pytest.mark.asyncio
+    async def test_update_all_fields(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock) as mock_req:
+            await svc.update_post(1, title="T", content="<p>C</p>", status="publish", slug="my-slug")
+            mock_req.assert_called_once_with(
+                "POST", "/wp/v2/posts/1",
+                {"title": "T", "content": "<p>C</p>", "status": "publish", "slug": "my-slug"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_empty(self):
+        from app.services.wordpress_service import WordPressService
+        from unittest.mock import AsyncMock, patch
+
+        svc = WordPressService()
+        with patch.object(svc, '_request', new_callable=AsyncMock) as mock_req:
+            result = await svc.update_post(1)
+            assert result == {}
+            mock_req.assert_not_called()
