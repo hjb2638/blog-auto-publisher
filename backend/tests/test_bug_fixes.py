@@ -120,3 +120,209 @@ class TestWPSyncShortTopic:
         assert len(topic) >= 10
         result = topic if len(topic) >= 10 else topic + " - Technical Article"
         assert result == topic
+
+
+# ---------------------------------------------------------------------------
+# v1.3.1 Bug 2: ArticleImageSchema missing `type` field
+# ---------------------------------------------------------------------------
+
+
+class TestArticleImageSchema:
+    """ArticleImageSchema must include `type` so that cover image filtering
+    works throughout the UI chain (ImageReview -> approve_final -> publish)."""
+
+    def test_type_field_present_with_default_inline(self):
+        from app.schemas.article import ArticleImageSchema
+        img = ArticleImageSchema(
+            id="abc123",
+            url="https://example.com/img.jpg",
+            alt_text="test image",
+            section_slug="intro",
+        )
+        assert img.type == "inline"
+
+    def test_type_field_accepts_cover(self):
+        from app.schemas.article import ArticleImageSchema
+        img = ArticleImageSchema(
+            id="abc123",
+            url="https://example.com/img.jpg",
+            alt_text="test image",
+            section_slug="",
+            type="cover",
+        )
+        assert img.type == "cover"
+
+    def test_type_field_preserved_in_serialization(self):
+        from app.schemas.article import ArticleImageSchema
+        img = ArticleImageSchema(
+            id="abc123",
+            url="https://example.com/img.jpg",
+            alt_text="test image",
+            section_slug="intro",
+            type="cover",
+        )
+        data = img.model_dump(by_alias=True)
+        assert data["type"] == "cover"
+
+    def test_type_field_default_is_inline_in_serialization(self):
+        from app.schemas.article import ArticleImageSchema
+        img = ArticleImageSchema(
+            id="abc123",
+            url="https://example.com/img.jpg",
+            alt_text="test image",
+            section_slug="intro",
+        )
+        data = img.model_dump(by_alias=True)
+        assert data["type"] == "inline"
+
+
+# ---------------------------------------------------------------------------
+# v1.3.1 Bug 3: Token statistics not recorded in revision functions
+# ---------------------------------------------------------------------------
+
+
+class TestReviseSectionsTokenRecording:
+    """revise_sections calls the LLM but discards token counts. The fix must
+    persist tokens to article.token_usage for each revised section."""
+
+    @pytest.mark.asyncio
+    async def test_revise_sections_records_tokens(self):
+        from app.services.content_service import revise_sections
+        from app.services.llm_service import llm_service
+
+        article = Article(
+            id=uuid4(),
+            topic="Machine learning guide for beginners and experts alike",
+            mode="manual",
+            status="content_ready",
+            outline={"title": "ML Guide", "sections": []},
+            content={
+                "sections": [
+                    {
+                        "heading": "Introduction",
+                        "slug": "introduction",
+                        "html": "<p>Original content.</p>",
+                        "word_count": 3,
+                    }
+                ],
+                "full_html": "<p>Original content.</p>",
+                "total_word_count": 3,
+            },
+            token_usage=None,
+        )
+
+        mock_llm_result = {
+            "content": "<p>Revised content for introduction.</p>",
+            "tokens_input": 300,
+            "tokens_output": 200,
+        }
+
+        with patch.object(llm_service, 'generate_response', new_callable=AsyncMock, return_value=mock_llm_result):
+            db = AsyncMock()
+            result = await revise_sections(db, article, ["introduction"], "Make it better")
+
+            assert result.token_usage is not None
+            assert "revision_introduction" in result.token_usage
+            assert result.token_usage["revision_introduction"]["input"] == 300
+            assert result.token_usage["revision_introduction"]["output"] == 200
+
+    @pytest.mark.asyncio
+    async def test_revise_sections_preserves_existing_tokens(self):
+        from app.services.content_service import revise_sections
+        from app.services.llm_service import llm_service
+
+        article = Article(
+            id=uuid4(),
+            topic="Machine learning guide for beginners and experts alike",
+            mode="manual",
+            status="content_ready",
+            outline={"title": "ML Guide", "sections": []},
+            content={
+                "sections": [
+                    {
+                        "heading": "Introduction",
+                        "slug": "introduction",
+                        "html": "<p>Original content.</p>",
+                        "word_count": 3,
+                    }
+                ],
+                "full_html": "<p>Original content.</p>",
+                "total_word_count": 3,
+            },
+            token_usage={"outline": {"input": 500, "output": 300}, "content_1": {"input": 200, "output": 150}},
+        )
+
+        mock_llm_result = {
+            "content": "<p>Revised content.</p>",
+            "tokens_input": 100,
+            "tokens_output": 80,
+        }
+
+        with patch.object(llm_service, 'generate_response', new_callable=AsyncMock, return_value=mock_llm_result):
+            db = AsyncMock()
+            result = await revise_sections(db, article, ["introduction"], "Make it shorter")
+
+            assert "outline" in result.token_usage
+            assert "content_1" in result.token_usage
+            assert "revision_introduction" in result.token_usage
+            assert result.token_usage["outline"]["input"] == 500
+
+
+class TestReviseOutlineTokenRecording:
+    """revise_outline calls the LLM but discards token counts."""
+
+    @pytest.mark.asyncio
+    async def test_revise_outline_records_tokens(self):
+        from app.services.outline_service import revise_outline
+        from app.services.llm_service import llm_service
+
+        article = Article(
+            id=uuid4(),
+            topic="Machine learning guide for beginners and experts alike",
+            mode="manual",
+            status="outline_ready",
+            outline={
+                "title": "ML Guide",
+                "sections": [
+                    {
+                        "heading": "Introduction",
+                        "slug": "introduction",
+                        "key_points": ["Overview"],
+                        "estimated_words": 100,
+                        "include_code_example": False,
+                    }
+                ],
+                "category": "AI",
+                "tags": ["ML"],
+            },
+            token_usage={"outline": {"input": 500, "output": 300}},
+        )
+
+        mock_llm_result = {
+            "parsed": {
+                "title": "Revised ML Guide",
+                "sections": [
+                    {
+                        "heading": "New Introduction",
+                        "slug": "introduction",
+                        "key_points": ["Better overview"],
+                        "estimated_words": 150,
+                        "include_code_example": False,
+                    }
+                ],
+                "category": "AI",
+                "tags": ["ML"],
+            },
+            "tokens_input": 400,
+            "tokens_output": 250,
+        }
+
+        with patch.object(llm_service, 'generate_json', new_callable=AsyncMock, return_value=mock_llm_result):
+            db = AsyncMock()
+            result = await revise_outline(db, article, "Make it more detailed")
+
+            assert "outline" in result.token_usage
+            assert result.token_usage["outline"]["input"] == 500
+            assert "outline_revision" in result.token_usage
+            assert result.token_usage["outline_revision"]["input"] == 400
+            assert result.token_usage["outline_revision"]["output"] == 250
