@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 
 function pageTitle(pathname: string): string {
   if (pathname === '/') return '';
@@ -12,6 +13,7 @@ function pageTitle(pathname: string): string {
 export default function Header() {
   const location = useLocation();
   const title = pageTitle(location.pathname);
+  const { data: user } = useCurrentUser();
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-200/80">
@@ -27,7 +29,19 @@ export default function Header() {
             </>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {user && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">{user.name}</span>
+              {user.avatarUrls?.['24'] && (
+                <img
+                  src={user.avatarUrls['24']}
+                  alt={user.name}
+                  className="w-6 h-6 rounded-full"
+                />
+              )}
+            </div>
+          )}
           <Link
             to="/new"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"

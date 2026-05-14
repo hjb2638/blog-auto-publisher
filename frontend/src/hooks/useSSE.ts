@@ -20,7 +20,7 @@ export function useSSE(
     const url = `${baseUrl}/articles/${articleId}/stream`;
     const source = new EventSource(url);
 
-    const events = ['section_complete', 'progress', 'status', 'error', 'done'];
+    const events = ['section_complete', 'progress', 'status', 'error', 'done', 'token_update'];
 
     const handler = (e: MessageEvent) => {
       try {

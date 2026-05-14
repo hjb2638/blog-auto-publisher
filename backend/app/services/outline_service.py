@@ -35,13 +35,19 @@ async def generate_outline(db: AsyncSession, article: Article) -> Article:
         result = await llm_service.generate_json(prompt)
         outline = result["parsed"]
 
+        t_in = result.get("tokens_input", 0)
+        t_out = result.get("tokens_output", 0)
         article.token_usage = {
             **(article.token_usage or {}),
-            "outline": {
-                "input": result.get("tokens_input", 0),
-                "output": result.get("tokens_output", 0),
-            },
+            "outline": {"input": t_in, "output": t_out},
         }
+
+        await stream_manager.send(article.id, "token_update", {
+            "stage": "outline",
+            "section_tokens": {"input": t_in, "output": t_out},
+            "cumulative_total": t_in + t_out,
+            "per_stage": article.token_usage,
+        })
 
         for section in outline.get("sections", []):
             if "slug" not in section or not section["slug"]:

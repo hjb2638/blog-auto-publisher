@@ -1,7 +1,7 @@
 import math
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from app.schemas.article import (
     ApproveFinalRequest,
     ApproveImageKeywordsRequest,
     ApproveOutlineRequest,
+    BatchActionRequest,
     CreateArticleRequest,
     PublishRequest,
     RegenerateRequest,
@@ -42,9 +43,10 @@ async def list_articles(
     page: int = 1,
     limit: int = 20,
     status: str | None = None,
+    source: str | None = None,
     db: AsyncSession = Depends(get_session),
 ):
-    articles, total = await svc.list_articles(db, page=page, limit=limit, status=status)
+    articles, total = await svc.list_articles(db, page=page, limit=limit, status=status, source=source)
     return {
         "success": True,
         "data": [svc.article_to_list_item(a) for a in articles],
@@ -77,9 +79,28 @@ async def get_article_status(article_id: UUID, db: AsyncSession = Depends(get_se
     }
 
 
+async def _generate_content_bg(article_id: UUID):
+    from app.core.database import async_session_factory
+    async with async_session_factory() as db:
+        article = await svc.get_article(db, article_id)
+        if article:
+            await generate_content(db, article)
+            await db.commit()
+
+
+async def _generate_images_bg(article_id: UUID):
+    from app.core.database import async_session_factory
+    async with async_session_factory() as db:
+        article = await svc.get_article(db, article_id)
+        if article:
+            await generate_image_plan(db, article)
+            await db.commit()
+
+
 @router.post("/{article_id}/approve-outline")
 async def approve_outline(
-    article_id: UUID, body: ApproveOutlineRequest, db: AsyncSession = Depends(get_session)
+    article_id: UUID, body: ApproveOutlineRequest, background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
 ):
     article = await svc.get_article(db, article_id)
     if not article:
@@ -89,28 +110,42 @@ async def approve_outline(
 
     if body.regenerate:
         article = await generate_outline(db, article)
-    elif body.revision_prompt:
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
+
+    if body.revision_prompt:
         if body.title and article.outline:
             article.outline["title"] = body.title
         if body.sections and article.outline:
             article.outline["sections"] = [s.model_dump() for s in body.sections]
         article = await revise_outline(db, article, body.revision_prompt)
-    else:
-        if body.title and article.outline:
-            article.outline["title"] = body.title
-        if body.sections and article.outline:
-            article.outline["sections"] = [s.model_dump() for s in body.sections]
-        article = await svc.update_status(db, article, "outline_approved")
-        await generate_content(db, article)
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
 
+    if article.content and not svc._outline_changed(article.outline, body.title, body.sections):
+        article = await svc.update_status(db, article, "outline_approved")
+        article = await svc.update_status(db, article, "content_ready")
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
+
+    if body.title and article.outline:
+        article.outline["title"] = body.title
+    if body.sections and article.outline:
+        article.outline["sections"] = [s.model_dump() for s in body.sections]
+    article = await svc.update_status(db, article, "outline_approved")
     await db.commit()
     await db.refresh(article)
+    background_tasks.add_task(_generate_content_bg, article.id)
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
 @router.post("/{article_id}/approve-content")
 async def approve_content(
-    article_id: UUID, body: ApproveContentRequest, db: AsyncSession = Depends(get_session)
+    article_id: UUID, body: ApproveContentRequest, background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
 ):
     article = await svc.get_article(db, article_id)
     if not article:
@@ -129,20 +164,36 @@ async def approve_content(
     if body.revision_prompt:
         slugs = body.regenerate_sections or []
         article = await revise_sections(db, article, slugs, body.revision_prompt)
-    elif body.regenerate_sections:
-        article = await regenerate_sections(db, article, body.regenerate_sections)
-    else:
-        article = await svc.update_status(db, article, "content_approved")
-        await generate_image_plan(db, article)
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
 
+    if body.regenerate_sections:
+        article = await regenerate_sections(db, article, body.regenerate_sections)
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
+
+    article = await svc.update_status(db, article, "content_approved")
     await db.commit()
     await db.refresh(article)
+    background_tasks.add_task(_generate_images_bg, article.id)
     return {"success": True, "data": svc.article_to_detail(article)}
+
+
+async def _search_images_bg(article_id: UUID):
+    from app.core.database import async_session_factory
+    async with async_session_factory() as db:
+        article = await svc.get_article(db, article_id)
+        if article:
+            await search_and_insert_images(db, article)
+            await db.commit()
 
 
 @router.post("/{article_id}/approve-image-keywords")
 async def approve_image_keywords(
-    article_id: UUID, body: ApproveImageKeywordsRequest, db: AsyncSession = Depends(get_session)
+    article_id: UUID, body: ApproveImageKeywordsRequest, background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
 ):
     article = await svc.get_article(db, article_id)
     if not article:
@@ -155,11 +206,21 @@ async def approve_image_keywords(
 
     if body.revision_prompt:
         article = await generate_image_plan(db, article)
-    else:
-        article = await search_and_insert_images(db, article)
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
 
+    if not svc._plan_changed(article.image_plan, body.plan.model_dump() if body.plan else None) and article.images:
+        article = await svc.update_status(db, article, "image_keywords_ready")
+        article = await svc.update_status(db, article, "images_ready")
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
+
+    article = await svc.update_status(db, article, "image_keywords_ready")
     await db.commit()
     await db.refresh(article)
+    background_tasks.add_task(_search_images_bg, article.id)
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
@@ -248,7 +309,7 @@ async def publish_article(
         if cover_image:
             try:
                 alt = cover_image.get("alt_text", title)
-                media = await wordpress_service.upload_media(cover_image["url"], alt)
+                media = await wordpress_service.upload_media(cover_image.get("full_url") or cover_image["url"], alt)
                 featured_media_id = media["id"]
                 logger.info("Cover image uploaded: wp_media_id=%d", featured_media_id)
             except Exception as e:
@@ -330,6 +391,34 @@ async def step_back(article_id: UUID, db: AsyncSession = Depends(get_session)):
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
+@router.post("/batch")
+async def batch_action(body: BatchActionRequest, db: AsyncSession = Depends(get_session)):
+    processed = 0
+    failed: list[dict] = []
+    for article_id in body.ids:
+        try:
+            article = await svc.get_article(db, article_id)
+            if not article:
+                failed.append({"id": str(article_id), "reason": "Not found"})
+                continue
+            if article.status == "publishing":
+                failed.append({"id": str(article_id), "reason": "Cannot modify while publishing"})
+                continue
+            if body.action == "delete":
+                await db.delete(article)
+                processed += 1
+            elif body.action == "cancel":
+                try:
+                    await svc.update_status(db, article, "cancelled")
+                    processed += 1
+                except ValueError as e:
+                    failed.append({"id": str(article_id), "reason": str(e)})
+        except Exception as e:
+            failed.append({"id": str(article_id), "reason": str(e)})
+    await db.commit()
+    return {"success": True, "data": {"processed": processed, "failed": failed}}
+
+
 @router.delete("/{article_id}")
 async def delete_article(article_id: UUID, db: AsyncSession = Depends(get_session)):
     article = await svc.get_article(db, article_id)
@@ -343,29 +432,7 @@ async def delete_article(article_id: UUID, db: AsyncSession = Depends(get_sessio
     return {"success": True, "data": {"deleted": True, "id": str(article_id)}}
 
 
-@router.post("/import-wp-posts")
-async def import_wp_posts(db: AsyncSession = Depends(get_session)):
-    wp_posts = await wordpress_service.get_posts(per_page=100)
-    imported, skipped = 0, 0
-    for post in wp_posts:
-        existing = (await db.execute(
-            select(Article).where(Article.wp_post_id == post["id"])
-        )).scalar()
-        if existing:
-            skipped += 1
-            continue
-        article = Article(
-            topic=post["title"]["rendered"][:500],
-            mode="manual",
-            status="published",
-            source="wordpress",
-            wp_post_id=post["id"],
-            wp_post_url=post["link"],
-            wp_slug=post["slug"],
-            full_html=sanitize_html(post["content"]["rendered"]),
-        )
-        db.add(article)
-        imported += 1
-    await db.commit()
-    logger.info("WP import: imported=%d skipped=%d", imported, skipped)
-    return {"success": True, "data": {"imported": imported, "skipped": skipped}}
+@router.post("/sync-wp")
+async def sync_wp():
+    result = await wordpress_service.sync_all_posts()
+    return {"success": True, "data": result}

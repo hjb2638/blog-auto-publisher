@@ -1,7 +1,7 @@
 import apiClient from './client';
 import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest, WPCategory, WPTag, ImagePlan } from '../types';
 
-export async function fetchArticles(params?: { page?: number; limit?: number; status?: string }) {
+export async function fetchArticles(params?: { page?: number; limit?: number; status?: string; source?: string }) {
   const { data } = await apiClient.get<ApiEnvelope<ArticleListItem[]>>('/articles', { params });
   return data;
 }
@@ -76,6 +76,11 @@ export async function fetchWPPosts(params?: { page?: number; perPage?: number; s
   return data;
 }
 
+export async function syncWPPosts() {
+  const { data } = await apiClient.post<ApiEnvelope<{ totalFetched: number; imported: number; skipped: number; failed: number }>>('/articles/sync-wp');
+  return data;
+}
+
 export async function importWPPosts() {
   const { data } = await apiClient.post<ApiEnvelope<{ imported: number; skipped: number }>>('/articles/import-wp-posts');
   return data;
@@ -83,6 +88,11 @@ export async function importWPPosts() {
 
 export async function updateWPPost(postId: number, body: Record<string, unknown>) {
   const { data } = await apiClient.put<ApiEnvelope<unknown>>(`/wordpress/posts/${postId}`, body);
+  return data;
+}
+
+export async function batchAction(body: { ids: string[]; action: string }) {
+  const { data } = await apiClient.post<ApiEnvelope<{ processed: number; failed: { id: string; reason: string }[] }>>('/articles/batch', body);
   return data;
 }
 

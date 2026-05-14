@@ -95,6 +95,8 @@ class ArticleListItem(CamelModel):
     status: ArticleStatus
     mode: ArticleMode
     wp_post_url: str | None = None
+    total_tokens: int | None = None
+    source: str = "local"
     created_at: datetime
     updated_at: datetime
 
@@ -190,6 +192,11 @@ class WPTag(CamelModel):
     name: str
     slug: str
     count: int = 0
+
+
+class BatchActionRequest(CamelModel):
+    ids: list[UUID]
+    action: str
 
 
 class RegenerateRequest(CamelModel):

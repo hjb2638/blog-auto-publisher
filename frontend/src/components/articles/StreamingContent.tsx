@@ -31,6 +31,7 @@ function SectionSkeleton() {
 export default function StreamingContent({ articleId, totalSections, onComplete }: StreamingContentProps) {
   const [sections, setSections] = useState<StreamSection[]>([]);
   const [completed, setCompleted] = useState(false);
+  const [cumulativeTokens, setCumulativeTokens] = useState(0);
 
   useSSE(
     articleId,
@@ -46,6 +47,9 @@ export default function StreamingContent({ articleId, totalSections, onComplete 
               wordCount: data.word_count as number,
             },
           ]);
+          break;
+        case 'token_update':
+          setCumulativeTokens(data.cumulative_total as number);
           break;
         case 'done':
           setCompleted(true);
@@ -74,9 +78,12 @@ export default function StreamingContent({ articleId, totalSections, onComplete 
           <h3 className="text-sm font-semibold text-gray-900">
             Generating Content
           </h3>
-          <span className="text-sm text-gray-500 font-mono">
-            {sections.length} / {totalSections} sections
-          </span>
+          <div className="flex items-center gap-3 text-sm text-gray-500 font-mono">
+            {cumulativeTokens > 0 && (
+              <span>{cumulativeTokens.toLocaleString()} tokens</span>
+            )}
+            <span>{sections.length} / {totalSections} sections</span>
+          </div>
         </div>
         <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
           <div

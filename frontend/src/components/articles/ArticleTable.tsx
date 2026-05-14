@@ -8,6 +8,10 @@ interface ArticleTableProps {
   currentPage: number;
   totalPages: number;
   statusFilter: string | undefined;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: (ids: string[]) => void;
+  isAllSelected: boolean;
   onPageChange: (page: number) => void;
   onStatusFilter: (status: string | undefined) => void;
 }
@@ -27,10 +31,15 @@ export default function ArticleTable({
   currentPage,
   totalPages,
   statusFilter,
+  selectedIds,
+  onToggle,
+  onSelectAll,
+  isAllSelected,
   onPageChange,
   onStatusFilter,
 }: ArticleTableProps) {
   const navigate = useNavigate();
+  const allIds = articles.map((a) => a.id);
 
   return (
     <div>
@@ -54,9 +63,19 @@ export default function ArticleTable({
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100 text-left">
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  onChange={() => onSelectAll(isAllSelected ? [] : allIds)}
+                  className="w-4 h-4 rounded border-gray-300"
+                />
+              </th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Topic</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Status</th>
+              <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Tokens</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Mode</th>
+              <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Source</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Created</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">WP</th>
             </tr>
@@ -65,8 +84,11 @@ export default function ArticleTable({
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-gray-50">
+                  <td className="px-4 py-3"><div className="h-4 w-4 bg-gray-100 rounded animate-pulse" /></td>
                   <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-48 animate-pulse" /></td>
                   <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-16 animate-pulse" /></td>
+                  <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-12 animate-pulse" /></td>
+                  <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-10 animate-pulse" /></td>
                   <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-12 animate-pulse" /></td>
                   <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-20 animate-pulse" /></td>
                   <td className="px-4 py-3"><div className="h-4 bg-gray-100 rounded w-8 animate-pulse" /></td>
@@ -74,7 +96,7 @@ export default function ArticleTable({
               ))
             ) : articles.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-400">
+                <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                   No articles found.
                 </td>
               </tr>
@@ -82,10 +104,20 @@ export default function ArticleTable({
               articles.map((article) => (
                 <tr
                   key={article.id}
-                  onClick={() => navigate(`/articles/${article.id}`)}
                   className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(article.id)}
+                      onChange={() => onToggle(article.id)}
+                      className="w-4 h-4 rounded border-gray-300"
+                    />
+                  </td>
+                  <td
+                    className="px-4 py-3"
+                    onClick={() => navigate(`/articles/${article.id}`)}
+                  >
                     <span className="text-sm text-gray-900 line-clamp-1">
                       {article.topic.length > 60 ? article.topic.slice(0, 60) + '...' : article.topic}
                     </span>
@@ -94,8 +126,18 @@ export default function ArticleTable({
                     <StatusBadge status={article.status} />
                   </td>
                   <td className="px-4 py-3">
+                    <span className="text-xs text-gray-500 font-mono">
+                      {article.totalTokens != null ? article.totalTokens.toLocaleString() : '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <span className="text-xs text-gray-500">
                       {article.mode === 'auto' ? 'Auto' : 'Manual'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-gray-500">
+                      {article.source === 'wordpress' ? 'WP' : 'Local'}
                     </span>
                   </td>
                   <td className="px-4 py-3">

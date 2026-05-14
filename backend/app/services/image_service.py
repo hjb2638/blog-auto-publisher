@@ -137,11 +137,22 @@ async def generate_image_plan(db: AsyncSession, article: Article) -> Article:
         plan = result["parsed"]
 
         token_usage = article.token_usage or {}
-        token_usage["images"] = {
-            "input": result.get("tokens_input", 0),
-            "output": result.get("tokens_output", 0),
-        }
+        t_in = result.get("tokens_input", 0)
+        t_out = result.get("tokens_output", 0)
+        token_usage["images"] = {"input": t_in, "output": t_out}
         article.token_usage = token_usage
+
+        cumulative = sum(
+            stage.get("input", 0) + stage.get("output", 0)
+            for stage in token_usage.values()
+        )
+
+        await stream_manager.send(article.id, "token_update", {
+            "stage": "images",
+            "section_tokens": {"input": t_in, "output": t_out},
+            "cumulative_total": cumulative,
+            "per_stage": token_usage,
+        })
 
         article.image_plan = plan
         article = await update_status(db, article, "image_keywords_ready")

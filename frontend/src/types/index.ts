@@ -12,6 +12,8 @@ export interface ArticleListItem {
   status: ArticleStatus;
   mode: ArticleMode;
   wpPostUrl: string | null;
+  totalTokens: number | null;
+  source: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -147,6 +149,14 @@ export interface WPCategory {
   name: string;
   slug: string;
   count: number;
+}
+
+export interface WPUser {
+  name: string;
+  slug: string;
+  avatarUrls: Record<string, string>;
+  roles: string[];
+  description: string;
 }
 
 export interface WPTag {

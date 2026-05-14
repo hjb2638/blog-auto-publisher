@@ -21,12 +21,12 @@ VALID_TRANSITIONS = {
     "draft": {"outline_generating", "cancelled"},
     "outline_generating": {"outline_ready", "failed"},
     "outline_ready": {"outline_approved", "outline_generating", "cancelled"},
-    "outline_approved": {"content_generating", "cancelled"},
+    "outline_approved": {"content_generating", "content_ready", "cancelled"},
     "content_generating": {"content_ready", "failed"},
     "content_ready": {"content_approved", "content_generating", "outline_ready", "cancelled"},
-    "content_approved": {"image_keywords_generating", "cancelled"},
+    "content_approved": {"image_keywords_generating", "image_keywords_ready", "cancelled"},
     "image_keywords_generating": {"image_keywords_ready", "failed"},
-    "image_keywords_ready": {"image_searching", "image_keywords_generating", "content_ready", "cancelled"},
+    "image_keywords_ready": {"image_searching", "images_ready", "image_keywords_generating", "content_ready", "cancelled"},
     "image_searching": {"images_ready", "failed"},
     "images_ready": {"final_approved", "image_searching", "image_keywords_ready", "cancelled"},
     "final_approved": {"publishing", "images_ready", "cancelled"},
@@ -55,7 +55,7 @@ async def get_article(db: AsyncSession, article_id: UUID) -> Article | None:
 
 
 async def list_articles(
-    db: AsyncSession, page: int = 1, limit: int = 20, status: str | None = None
+    db: AsyncSession, page: int = 1, limit: int = 20, status: str | None = None, source: str | None = None,
 ) -> tuple[list[Article], int]:
     query = select(Article)
     count_query = select(func.count(Article.id))
@@ -63,6 +63,9 @@ async def list_articles(
     if status:
         query = query.where(Article.status == status)
         count_query = count_query.where(Article.status == status)
+    if source:
+        query = query.where(Article.source == source)
+        count_query = count_query.where(Article.source == source)
 
     total_res = await db.execute(count_query)
     total = total_res.scalar() or 0
@@ -96,13 +99,48 @@ async def is_auto_mode(article: Article) -> bool:
     return article.mode == "auto"
 
 
+def _outline_changed(outline: dict | None, title: str | None, sections: list | None) -> bool:
+    if not outline:
+        return True
+    if title and outline.get("title") != title:
+        return True
+    if sections is not None:
+        existing = outline.get("sections", [])
+        if len(sections) != len(existing):
+            return True
+        for i, s in enumerate(sections):
+            if isinstance(s, dict):
+                if s.get("heading") != existing[i].get("heading"):
+                    return True
+                if s.get("key_points") != existing[i].get("key_points"):
+                    return True
+    return False
+
+
+def _plan_changed(image_plan: dict | None, plan: dict | None) -> bool:
+    if plan is None:
+        return False
+    if not image_plan:
+        return True
+    return image_plan.get("inline_images") != plan.get("inline_images") or \
+        image_plan.get("cover_image") != plan.get("cover_image")
+
+
 def article_to_list_item(a: Article) -> ArticleListItem:
+    total = None
+    if a.token_usage:
+        total = sum(
+            stage.get("input", 0) + stage.get("output", 0)
+            for stage in a.token_usage.values()
+        )
     return ArticleListItem(
         id=a.id,
         topic=a.topic[:80] if len(a.topic) > 80 else a.topic,
         status=ArticleStatus(a.status),
         mode=a.mode,
         wp_post_url=a.wp_post_url,
+        total_tokens=total,
+        source=a.source,
         created_at=a.created_at,
         updated_at=a.updated_at,
     )

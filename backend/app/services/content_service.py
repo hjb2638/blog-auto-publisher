@@ -75,10 +75,22 @@ async def generate_content(db: AsyncSession, article: Article, sections_to_gener
             word_count = _count_words(html)
 
             section_key = f"content_{i + 1}"
-            token_usage[section_key] = {
-                "input": result.get("tokens_input", 0),
-                "output": result.get("tokens_output", 0),
-            }
+            t_in = result.get("tokens_input", 0)
+            t_out = result.get("tokens_output", 0)
+            token_usage[section_key] = {"input": t_in, "output": t_out}
+
+            cumulative = sum(
+                stage.get("input", 0) + stage.get("output", 0)
+                for stage in token_usage.values()
+            )
+
+            await stream_manager.send(article.id, "token_update", {
+                "stage": "content",
+                "section_index": i + 1,
+                "section_tokens": {"input": t_in, "output": t_out},
+                "cumulative_total": cumulative,
+                "per_stage": token_usage,
+            })
 
             existing_content.append({
                 "heading": heading,

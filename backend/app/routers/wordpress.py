@@ -5,6 +5,24 @@ from app.services.wordpress_service import wordpress_service
 router = APIRouter(prefix="/wordpress", tags=["wordpress"])
 
 
+@router.get("/me")
+async def get_current_user():
+    try:
+        user = await wordpress_service.get_current_user()
+        return {
+            "success": True,
+            "data": {
+                "name": user.get("name"),
+                "slug": user.get("slug"),
+                "avatar_urls": user.get("avatar_urls"),
+                "roles": user.get("roles", []),
+                "description": user.get("description", ""),
+            },
+        }
+    except Exception as e:
+        raise HTTPException(502, detail=f"Failed to fetch WP user: {str(e)}")
+
+
 @router.get("/categories")
 async def get_wp_categories():
     try:

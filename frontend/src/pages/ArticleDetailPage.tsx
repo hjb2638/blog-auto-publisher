@@ -17,6 +17,7 @@ import FinalReview from '../components/articles/FinalReview';
 import ContentRenderer from '../components/articles/ContentRenderer';
 import GenerationProgress from '../components/articles/GenerationProgress';
 import StreamingContent from '../components/articles/StreamingContent';
+import TokenUsageCard from '../components/articles/TokenUsageCard';
 import type { Article } from '../types';
 
 function getElapsed(startedAt: string): number {
@@ -204,6 +205,12 @@ export default function ArticleDetailPage() {
           onPublish={(body) => publishArticle.mutate(body)}
           onBack={handleStepBack}
         />
+      )}
+
+      {article.tokenUsage && Object.keys(article.tokenUsage).length > 0 && (
+        <div className="mt-6">
+          <TokenUsageCard tokenUsage={article.tokenUsage} />
+        </div>
       )}
 
       {status === 'failed' && (

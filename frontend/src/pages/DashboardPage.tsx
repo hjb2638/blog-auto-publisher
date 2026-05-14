@@ -1,5 +1,8 @@
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApiStatus } from '../hooks/useApiStatus';
 import { useArticlesPaginated } from '../hooks/useArticlesPaginated';
+import { syncWPPosts } from '../api/articles';
 
 function StatCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
@@ -47,8 +50,20 @@ export default function DashboardPage() {
   const { data: apiStatusData } = useApiStatus();
   const { data: articlesData } = useArticlesPaginated(1, 1);
   const apiStatus = apiStatusData?.data;
+  const queryClient = useQueryClient();
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const totalArticles = articlesData?.meta?.total ?? 0;
+
+  const syncMutation = useMutation({
+    mutationFn: syncWPPosts,
+    onSuccess: (res) => {
+      const d = res.data;
+      setSyncResult(`Fetched ${d.totalFetched}, imported ${d.imported}, skipped ${d.skipped}`);
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
+    },
+    onError: () => setSyncResult('Sync failed'),
+  });
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in-up">
@@ -69,6 +84,19 @@ export default function DashboardPage() {
           value={apiStatus?.unsplash?.remaining ?? '—'}
           subtitle={`of ${apiStatus?.unsplash?.limit ?? 50} remaining`}
         />
+      </div>
+
+      <div className="flex items-center gap-3 mb-8">
+        <button
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+          className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+        >
+          {syncMutation.isPending ? 'Syncing...' : 'Sync WordPress'}
+        </button>
+        {syncResult && (
+          <span className="text-sm text-gray-500">{syncResult}</span>
+        )}
       </div>
 
       <ApiQuotaCard

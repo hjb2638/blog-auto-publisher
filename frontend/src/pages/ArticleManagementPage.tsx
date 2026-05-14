@@ -1,19 +1,46 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useArticlesPaginated } from '../hooks/useArticlesPaginated';
+import { useArticleSelection } from '../hooks/useArticleSelection';
 import ArticleTable from '../components/articles/ArticleTable';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import { batchAction } from '../api/articles';
+
+const SOURCE_TABS = [
+  { label: 'All', value: undefined },
+  { label: 'Local', value: 'local' },
+  { label: 'WordPress', value: 'wordpress' },
+] as const;
 
 export default function ArticleManagementPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<string | undefined>();
+  const [source, setSource] = useState<string | undefined>();
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [batchActionType, setBatchActionType] = useState<string>('');
   const limit = 20;
 
-  const { data, isLoading } = useArticlesPaginated(page, limit, status);
+  const { data, isLoading } = useArticlesPaginated(page, limit, status, source);
+  const { selectedIds, toggle, selectAll, clearSelection, isAllSelected } = useArticleSelection();
 
   const articles = data?.data || [];
   const meta = data?.meta;
   const totalPages = meta?.pages || 1;
+  const allIds = articles.map((a) => a.id);
+
+  const batchMutation = useMutation({
+    mutationFn: batchAction,
+    onSuccess: () => {
+      clearSelection();
+      queryClient.invalidateQueries({ queryKey: ['articles'] });
+    },
+  });
+
+  const selectedArticles = articles.filter((a) => selectedIds.has(a.id));
+  const selectedCount = selectedIds.size;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -27,14 +54,85 @@ export default function ArticleManagementPage() {
         </button>
       </div>
 
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {SOURCE_TABS.map(({ label, value }) => (
+          <button
+            key={label}
+            onClick={() => { setSource(value); setPage(1); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full ${
+              source === value
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <ArticleTable
         articles={articles}
         isLoading={isLoading}
         currentPage={page}
         totalPages={totalPages}
         statusFilter={status}
+        selectedIds={selectedIds}
+        onToggle={toggle}
+        onSelectAll={selectAll}
+        isAllSelected={isAllSelected(allIds)}
         onPageChange={setPage}
         onStatusFilter={(s) => { setStatus(s); setPage(1); }}
+      />
+
+      {selectedCount > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
+          <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              {selectedCount} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setBatchActionType('cancel');
+                  setShowBatchConfirm(true);
+                }}
+                className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel Selected
+              </button>
+              <button
+                onClick={() => {
+                  setBatchActionType('delete');
+                  setShowBatchConfirm(true);
+                }}
+                className="px-3 py-1.5 text-sm text-white bg-red-600 rounded-md hover:bg-red-700"
+              >
+                Delete Selected
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={showBatchConfirm}
+        title={batchActionType === 'delete' ? 'Batch Delete' : 'Batch Cancel'}
+        message={
+          batchActionType === 'delete'
+            ? `Delete ${selectedCount} article${selectedCount > 1 ? 's' : ''}?${
+                selectedCount <= 5
+                  ? '\n\n' + selectedArticles.map((a) => `• ${a.topic}`).join('\n')
+                  : ''
+              } This action cannot be undone.`
+            : `Cancel ${selectedCount} article${selectedCount > 1 ? 's' : ''}?`
+        }
+        confirmLabel={batchActionType === 'delete' ? 'Delete' : 'Cancel'}
+        variant={batchActionType === 'delete' ? 'danger' : 'primary'}
+        onConfirm={() => {
+          setShowBatchConfirm(false);
+          batchMutation.mutate({ ids: Array.from(selectedIds), action: batchActionType });
+        }}
+        onCancel={() => setShowBatchConfirm(false)}
       />
     </div>
   );
