@@ -129,6 +129,12 @@ export default function ArticleDetailPage() {
 
       <StatusStepper status={status!} mode={article.mode} />
 
+      {article.errorMessage && status !== 'failed' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+          {article.errorMessage}
+        </div>
+      )}
+
       {status === 'published' && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
           <div className="text-green-600 text-lg">Published!</div>
