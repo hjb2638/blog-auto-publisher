@@ -437,3 +437,65 @@ class TestWordPressContentType:
         content_type_header = ""
         content_type = content_type_header or "image/jpeg"
         assert content_type == "image/jpeg"
+
+
+# ---------------------------------------------------------------------------
+# v1.3.3 Bug: Cover image upload fails due to extensionless filename
+# ---------------------------------------------------------------------------
+
+
+class TestFilenameExtension:
+    """_ensure_filename_extension must add the correct file extension based on
+    the content-type header when the filename from Unsplash lacks one."""
+
+    def _call_function(self, filename: str, content_type: str | None) -> str:
+        from app.services.wordpress_service import _ensure_filename_extension
+        return _ensure_filename_extension(filename, content_type)
+
+    def test_adds_jpg_for_jpeg_mime(self):
+        assert self._call_function("photo123", "image/jpeg") == "photo123.jpg"
+
+    def test_adds_png_for_png_mime(self):
+        assert self._call_function("photo123", "image/png") == "photo123.png"
+
+    def test_adds_webp_for_webp_mime(self):
+        assert self._call_function("photo123", "image/webp") == "photo123.webp"
+
+    def test_adds_gif_for_gif_mime(self):
+        assert self._call_function("animated", "image/gif") == "animated.gif"
+
+    def test_preserves_existing_jpg(self):
+        assert self._call_function("photo.jpg", "image/png") == "photo.jpg"
+
+    def test_preserves_existing_png(self):
+        assert self._call_function("photo.png", "image/jpeg") == "photo.png"
+
+    def test_preserves_existing_webp(self):
+        assert self._call_function("photo.webp", "image/jpeg") == "photo.webp"
+
+    def test_fallback_when_ct_is_none(self):
+        assert self._call_function("photo123", None) == "photo123.jpg"
+
+    def test_fallback_when_ct_is_empty(self):
+        assert self._call_function("photo123", "") == "photo123.jpg"
+
+    def test_strips_charset_param(self):
+        assert self._call_function("photo123", "image/jpeg; charset=utf-8") == "photo123.jpg"
+
+    def test_unknown_mime_extracts_subtype(self):
+        assert self._call_function("photo123", "image/avif") == "photo123.avif"
+
+    def test_dot_in_name_not_extension(self):
+        assert self._call_function("photo.v2", "image/jpeg") == "photo.v2.jpg"
+
+    def test_uppercase_jpg(self):
+        assert self._call_function("PHOTO.JPG", "image/png") == "PHOTO.JPG"
+
+    def test_bmp_extension(self):
+        assert self._call_function("img", "image/bmp") == "img.bmp"
+
+    def test_svg_extension(self):
+        assert self._call_function("icon", "image/svg+xml") == "icon.svg"
+
+    def test_tiff_extension(self):
+        assert self._call_function("scan", "image/tiff") == "scan.tiff"
