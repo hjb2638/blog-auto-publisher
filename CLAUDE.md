@@ -92,3 +92,13 @@ WordPress credentials use `SecretStr` — `__str__()` returns `**********`. The 
 - WP 401 → HALT immediately (no retries, as defined in `wordpress_service.py:_is_retryable`)
 - Custom `AppException` hierarchy in `core/exceptions.py` with `AppExceptionHandler` in `main.py`
 - API response envelope: `{success: bool, data: T, error?: string, detail?: string, meta?: {total, page, limit}}`
+
+## Planning Conventions
+
+All project planning documents MUST be saved to `.claude/plan/` at the project root. Use the naming format `{scope}-v{version}-{summary}.md`:
+
+- `blog-v1.3.2-bugfixes.md` — bug fix plans
+- `blog-v1.3-improvements.md` — feature/improvement plans
+- `image-pipeline-ux-improvements.md` — subsystem-specific plans
+
+Never save plans to `~/.claude/plans/` — that is for global/user-level plans only.

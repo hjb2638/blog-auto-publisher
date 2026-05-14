@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchArticle } from '../api/articles';
 import type { Article } from '../types';
 
-function isGenerating(status: string): boolean {
-  return ['outline_generating', 'content_generating', 'content_approved',
+export function isGenerating(status: string): boolean {
+  return ['outline_generating', 'outline_approved', 'content_generating', 'content_approved',
           'image_keywords_generating', 'image_keywords_ready', 'image_searching',
           'publishing'].includes(status);
 }

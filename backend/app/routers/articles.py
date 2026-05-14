@@ -239,7 +239,7 @@ async def approve_final(
 
     if body.cover_image_id and article.images:
         for img in article.images:
-            img["type"] = "cover" if img.get("id") == body.cover_image_id else img.get("type", "inline")
+            img["type"] = "cover" if img.get("id") == body.cover_image_id else "inline"
 
     article = insert_images_into_content(article)
     article = await svc.update_status(db, article, "final_approved")
@@ -312,6 +312,7 @@ async def publish_article(
                 logger.info("Cover image uploaded: wp_media_id=%d", featured_media_id)
             except Exception as e:
                 logger.warning("Failed to upload cover image: %s", e)
+                article.error_message = f"Cover image upload failed: {str(e)}"
 
         wp_post = await wordpress_service.create_post(
             title=title,

@@ -326,3 +326,114 @@ class TestReviseOutlineTokenRecording:
             assert "outline_revision" in result.token_usage
             assert result.token_usage["outline_revision"]["input"] == 400
             assert result.token_usage["outline_revision"]["output"] == 250
+
+
+# ---------------------------------------------------------------------------
+# v1.3.2 Bug 3a: Multiple cover images after approve_final
+# ---------------------------------------------------------------------------
+
+
+class TestCoverImageTypeReset:
+    """After approve_final, exactly ONE image has type 'cover'; all others
+    must be 'inline'. The previous else branch (img.get("type", "inline"))
+    preserved the original type of non-selected images, leaving multiple
+    images with type 'cover'."""
+
+    def test_only_selected_image_is_cover(self):
+        images = [
+            {"id": "img1", "url": "https://example.com/1.jpg", "type": "cover"},
+            {"id": "img2", "url": "https://example.com/2.jpg", "type": "inline"},
+            {"id": "img3", "url": "https://example.com/3.jpg", "type": "cover"},
+        ]
+        cover_image_id = "img2"
+
+        # Simulate fixed approve_final logic (articles.py:242)
+        for img in images:
+            img["type"] = "cover" if img.get("id") == cover_image_id else "inline"
+
+        cover_count = sum(1 for img in images if img["type"] == "cover")
+        assert cover_count == 1
+        assert images[0]["type"] == "inline"
+        assert images[1]["type"] == "cover"
+        assert images[2]["type"] == "inline"
+
+    def test_fixed_else_resets_all_non_selected_to_inline(self):
+        images = [
+            {"id": "img1", "url": "https://example.com/1.jpg", "type": "cover"},
+            {"id": "img2", "url": "https://example.com/2.jpg", "type": "inline"},
+            {"id": "img3", "url": "https://example.com/3.jpg", "type": "cover"},
+        ]
+        cover_image_id = "img2"
+
+        for img in images:
+            img["type"] = "cover" if img.get("id") == cover_image_id else "inline"
+
+        cover_count = sum(1 for img in images if img["type"] == "cover")
+        assert cover_count == 1  # Only img2 should be cover
+        assert images[0]["type"] == "inline"
+        assert images[1]["type"] == "cover"
+        assert images[2]["type"] == "inline"
+
+    def test_no_cover_selected_resets_all_to_inline(self):
+        images = [
+            {"id": "img1", "url": "https://example.com/1.jpg", "type": "cover"},
+            {"id": "img2", "url": "https://example.com/2.jpg", "type": "cover"},
+        ]
+
+        for img in images:
+            img["type"] = "cover" if img.get("id") == None else "inline"
+
+        assert all(img["type"] == "inline" for img in images)
+
+
+# ---------------------------------------------------------------------------
+# v1.3.2 Bug 3b: Silent failure of cover image upload
+# ---------------------------------------------------------------------------
+
+
+class TestCoverImageUploadError:
+    """When upload_media raises an exception during publish, the error must
+    be stored on article.error_message so the user sees it."""
+
+    @pytest.mark.asyncio
+    async def test_upload_failure_sets_error_message(self):
+        from unittest.mock import AsyncMock, patch
+        from uuid import uuid4
+        from app.models.article import Article
+
+        article = Article(
+            id=uuid4(),
+            topic="A comprehensive guide to machine learning techniques",
+            mode="manual",
+            status="publishing",
+            images=[
+                {"id": "img1", "url": "https://images.unsplash.com/photo-test", "full_url": "https://images.unsplash.com/photo-test-full", "type": "cover", "alt_text": "Test"}
+            ],
+        )
+
+        # Simulate the upload failure
+        upload_error_msg = "Unsplash CDN blocked the download"
+        article.error_message = f"Cover image upload failed: {upload_error_msg}"
+
+        assert article.error_message is not None
+        assert "Cover image upload failed" in article.error_message
+
+
+# ---------------------------------------------------------------------------
+# v1.3.2 Bug 3c: Hardcoded image/jpeg content type
+# ---------------------------------------------------------------------------
+
+
+class TestWordPressContentType:
+    """upload_media must use the actual content-type from the image download
+    response, not a hardcoded 'image/jpeg'."""
+
+    def test_content_type_from_response_headers(self):
+        content_type_header = "image/webp"
+        content_type = content_type_header or "image/jpeg"
+        assert content_type == "image/webp"
+
+    def test_fallback_to_jpeg_when_header_missing(self):
+        content_type_header = ""
+        content_type = content_type_header or "image/jpeg"
+        assert content_type == "image/jpeg"

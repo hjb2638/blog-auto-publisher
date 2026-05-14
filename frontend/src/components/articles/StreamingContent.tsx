@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSSE } from '../../hooks/useSSE';
 import ContentRenderer from './ContentRenderer';
 
@@ -13,6 +13,7 @@ interface StreamingContentProps {
   articleId: string;
   totalSections: number;
   onComplete?: () => void;
+  onTokenUpdate?: (perStage: Record<string, { input: number; output: number }>) => void;
 }
 
 function SectionSkeleton() {
@@ -28,10 +29,12 @@ function SectionSkeleton() {
   );
 }
 
-export default function StreamingContent({ articleId, totalSections, onComplete }: StreamingContentProps) {
+export default function StreamingContent({ articleId, totalSections, onComplete, onTokenUpdate }: StreamingContentProps) {
   const [sections, setSections] = useState<StreamSection[]>([]);
   const [completed, setCompleted] = useState(false);
   const [cumulativeTokens, setCumulativeTokens] = useState(0);
+  const onTokenUpdateRef = useRef(onTokenUpdate);
+  onTokenUpdateRef.current = onTokenUpdate;
 
   useSSE(
     articleId,
@@ -50,6 +53,9 @@ export default function StreamingContent({ articleId, totalSections, onComplete 
           break;
         case 'token_update':
           setCumulativeTokens(data.cumulative_total as number);
+          if (data.per_stage) {
+            onTokenUpdateRef.current?.(data.per_stage as Record<string, { input: number; output: number }>);
+          }
           break;
         case 'done':
           setCompleted(true);

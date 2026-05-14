@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useArticle } from '../hooks/useArticle';
 import {
   useApproveOutline, useApproveContent, useApproveImageKeywords, useApproveFinal,
@@ -37,6 +38,7 @@ export default function ArticleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, isLoading, isError, error } = useArticle(id);
+  const queryClient = useQueryClient();
   const [showDelete, setShowDelete] = useState(false);
   const [awaitingStream, setAwaitingStream] = useState(false);
 
@@ -152,6 +154,18 @@ export default function ArticleDetailPage() {
         <StreamingContent
           articleId={article.id}
           totalSections={article.outline?.sections?.length || article.content?.sections?.length || 0}
+          onTokenUpdate={(perStage) => {
+            queryClient.setQueryData(['article', id], (old: any) => {
+              if (!old?.data) return old;
+              return {
+                ...old,
+                data: {
+                  ...old.data,
+                  tokenUsage: { ...old.data.tokenUsage, ...perStage },
+                },
+              };
+            });
+          }}
         />
       )}
 

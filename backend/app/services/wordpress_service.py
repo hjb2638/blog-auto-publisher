@@ -75,7 +75,8 @@ class WordPressService:
             img_resp = await client.get(image_url, headers={"User-Agent": "blog-project/1.0"})
             img_resp.raise_for_status()
             filename = image_url.split("/")[-1].split("?")[0] or "image.jpg"
-            files = {"file": (filename, img_resp.content, "image/jpeg")}
+            content_type = img_resp.headers.get("content-type", "image/jpeg")
+            files = {"file": (filename, img_resp.content, content_type)}
             resp = await client.post(
                 f"{self.api_url}/wp/v2/media",
                 headers=self.auth_header,
