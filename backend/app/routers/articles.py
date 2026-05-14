@@ -1,6 +1,7 @@
 import math
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ from app.schemas.article import (
     CreateArticleRequest,
     PublishRequest,
     RegenerateRequest,
+    UpdateWpRequest,
 )
 from app.models.article import Article
 from app.services import article_service as svc
@@ -419,16 +421,65 @@ async def batch_action(body: BatchActionRequest, db: AsyncSession = Depends(get_
 
 
 @router.delete("/{article_id}")
-async def delete_article(article_id: UUID, db: AsyncSession = Depends(get_session)):
+async def delete_article(
+    article_id: UUID,
+    delete_wp: bool = False,
+    db: AsyncSession = Depends(get_session),
+):
     article = await svc.get_article(db, article_id)
     if not article:
         raise HTTPException(404, detail="Article not found")
     if article.status == "publishing":
         raise HTTPException(409, detail="Cannot delete article while publishing")
 
+    wp_deleted = False
+    if delete_wp and article.wp_post_id:
+        try:
+            wp_deleted = await wordpress_service.delete_post(article.wp_post_id)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise HTTPException(502, detail="WordPress auth failed. Check application password permissions.")
+            raise HTTPException(502, detail=f"WordPress delete failed: {e}")
+
     await db.delete(article)
     await db.commit()
-    return {"success": True, "data": {"deleted": True, "id": str(article_id)}}
+    return {"success": True, "data": {"deleted": True, "id": str(article_id), "wpDeleted": wp_deleted}}
+
+
+@router.post("/{article_id}/update-wp")
+async def update_wp_article(
+    article_id: UUID,
+    body: UpdateWpRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    article = await svc.get_article(db, article_id)
+    if not article:
+        raise HTTPException(404, detail="Article not found")
+    if article.status != "published" or not article.wp_post_id:
+        raise HTTPException(409, detail="Article is not published to WordPress")
+
+    try:
+        await wordpress_service.update_post(
+            article.wp_post_id,
+            title=body.title,
+            content=body.content,
+            status=body.status,
+            slug=body.slug,
+        )
+
+        if body.title is not None and article.outline:
+            article.outline["title"] = body.title
+        if body.content is not None:
+            article.full_html = body.content
+        if body.slug is not None:
+            article.wp_slug = body.slug
+
+        await db.commit()
+        await db.refresh(article)
+        return {"success": True, "data": svc.article_to_detail(article)}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(502, detail=f"WordPress update failed: {e}")
 
 
 @router.post("/sync-wp")
