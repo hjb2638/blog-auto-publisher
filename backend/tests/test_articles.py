@@ -803,3 +803,249 @@ class TestStepBackMap:
         }
 
         assert STEP_BACK_MAP == expected
+
+
+# ---------------------------------------------------------------------------
+# v1.5.1: Batch operations unification (unpublish + delete_wp flag)
+# ---------------------------------------------------------------------------
+
+
+class TestUnpublishArticle:
+    """article_service.unpublish_article() — unpublish from WordPress + set to final_approved."""
+
+    @pytest.mark.asyncio
+    async def test_unpublishes_published_article(self, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.article_service import unpublish_article
+        from app.models.article import Article
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="published",
+            wp_post_id=500,
+            outline=json.dumps({"title": "Unpublish Test", "sections": []}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+
+            wp_mock = MagicMock()
+            wp_mock.update_post = AsyncMock(return_value={"status": "draft"})
+
+            result = await unpublish_article(
+                db=test_session,
+                article=article,
+                wordpress_service=wp_mock,
+            )
+
+            assert result.status == "final_approved"
+            wp_mock.update_post.assert_called_once_with(500, status="draft")
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_raises_for_non_published(self, test_session: AsyncSession):
+        from unittest.mock import MagicMock
+        from app.services.article_service import unpublish_article
+        from app.models.article import Article
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="draft",
+            outline=json.dumps({"title": "Draft"}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+            wp_mock = MagicMock()
+
+            with pytest.raises(ValueError, match="only published articles"):
+                await unpublish_article(
+                    db=test_session,
+                    article=article,
+                    wordpress_service=wp_mock,
+                )
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_raises_for_no_wp_post_id(self, test_session: AsyncSession):
+        from unittest.mock import MagicMock
+        from app.services.article_service import unpublish_article
+        from app.models.article import Article
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="published",
+            wp_post_id=None,
+            outline=json.dumps({"title": "No WP ID"}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+            wp_mock = MagicMock()
+
+            with pytest.raises(ValueError, match="no WordPress post ID"):
+                await unpublish_article(
+                    db=test_session,
+                    article=article,
+                    wordpress_service=wp_mock,
+                )
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_wp_401(self, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.article_service import unpublish_article
+        from app.models.article import Article
+        from httpx import HTTPStatusError, Request, Response
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="published",
+            wp_post_id=501,
+            outline=json.dumps({"title": "Auth Fail"}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+            wp_mock = MagicMock()
+            req = Request("POST", "https://example.com")
+            resp = Response(401, request=req)
+            wp_mock.update_post = AsyncMock(
+                side_effect=HTTPStatusError("Unauthorized", request=req, response=resp)
+            )
+
+            with pytest.raises(ValueError, match="WordPress auth failed"):
+                await unpublish_article(
+                    db=test_session,
+                    article=article,
+                    wordpress_service=wp_mock,
+                )
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestBatchUnpublish:
+    """POST /articles/batch with action=unpublish"""
+
+    @pytest.mark.asyncio
+    async def test_batch_unpublish_success(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="published",
+            wp_post_id=600,
+            outline=json.dumps({"title": "Batch Unpublish"}),
+        )
+        try:
+            wp_mock = MagicMock()
+            wp_mock.update_post = AsyncMock(return_value={"status": "draft"})
+
+            with patch('app.routers.articles.wordpress_service', wp_mock):
+                response = await client.post("/api/v1/articles/batch", json={
+                    "ids": [article_id],
+                    "action": "unpublish",
+                })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["processed"] == 1
+            assert data["data"]["failed"] == []
+            wp_mock.update_post.assert_called_once_with(600, status="draft")
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_batch_unpublish_not_published(self, client: AsyncClient, test_session: AsyncSession):
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="draft",
+            outline=json.dumps({"title": "Draft Article"}),
+        )
+        try:
+            response = await client.post("/api/v1/articles/batch", json={
+                "ids": [article_id],
+                "action": "unpublish",
+            })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["data"]["processed"] == 0
+            assert len(data["data"]["failed"]) == 1
+            assert "only published articles" in data["data"]["failed"][0]["reason"]
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestBatchDeleteWithDeleteWp:
+    """POST /articles/batch with action=delete and delete_wp flag"""
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_with_wp(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        article_id = await _create_test_article(
+            test_session,
+            wp_post_id=700,
+        )
+        try:
+            wp_mock = MagicMock()
+            wp_mock.delete_post = AsyncMock(return_value=True)
+
+            with patch('app.routers.articles.wordpress_service', wp_mock):
+                response = await client.post("/api/v1/articles/batch", json={
+                    "ids": [article_id],
+                    "action": "delete",
+                    "deleteWp": True,
+                })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["processed"] == 1
+            wp_mock.delete_post.assert_called_once_with(700)
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_without_wp(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        article_id = await _create_test_article(
+            test_session,
+            wp_post_id=701,
+        )
+        try:
+            wp_mock = MagicMock()
+            wp_mock.delete_post = AsyncMock(return_value=True)
+
+            with patch('app.routers.articles.wordpress_service', wp_mock):
+                response = await client.post("/api/v1/articles/batch", json={
+                    "ids": [article_id],
+                    "action": "delete",
+                    "deleteWp": False,
+                })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["processed"] == 1
+            wp_mock.delete_post.assert_not_called()
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestValidTransitionsUnpublish:
+    """VALID_TRANSITIONS must include published → final_approved"""
+
+    def test_published_can_transition_to_final_approved(self):
+        from app.services.article_service import VALID_TRANSITIONS
+
+        assert "final_approved" in VALID_TRANSITIONS.get("published", set())
