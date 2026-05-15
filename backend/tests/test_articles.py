@@ -859,7 +859,7 @@ class TestUnpublishArticle:
             article = await test_session.get(Article, UUID(article_id))
             wp_mock = MagicMock()
 
-            with pytest.raises(ValueError, match="only published articles"):
+            with pytest.raises(ValueError, match="Can only unpublish published articles"):
                 await unpublish_article(
                     db=test_session,
                     article=article,
@@ -979,7 +979,7 @@ class TestBatchUnpublish:
             data = response.json()
             assert data["data"]["processed"] == 0
             assert len(data["data"]["failed"]) == 1
-            assert "only published articles" in data["data"]["failed"][0]["reason"]
+            assert "Can only unpublish published articles" in data["data"]["failed"][0]["reason"]
         finally:
             await _cleanup_article(test_session, article_id)
 
@@ -1049,3 +1049,64 @@ class TestValidTransitionsUnpublish:
         from app.services.article_service import VALID_TRANSITIONS
 
         assert "final_approved" in VALID_TRANSITIONS.get("published", set())
+
+
+class TestArticleDisplayTitle:
+    """article_to_list_item display_title computation."""
+
+    def _make_mock(self, **kwargs):
+        from unittest.mock import MagicMock
+        from uuid import uuid4
+
+        article = MagicMock()
+        article.id = uuid4()
+        article.topic = "A test topic about machine learning and AI"
+        article.outline = None
+        article.status = "published"
+        article.mode = "manual"
+        article.wp_post_url = None
+        article.token_usage = None
+        article.source = "local"
+        article.created_at = "2024-01-01T00:00:00Z"
+        article.updated_at = "2024-01-01T00:00:00Z"
+        article.version = 1
+        for k, v in kwargs.items():
+            setattr(article, k, v)
+        return article
+
+    def test_display_title_uses_outline_title(self):
+        from app.services.article_service import article_to_list_item
+
+        article = self._make_mock(topic="a long topic about rag technology", outline={"title": "RAG技术详解：从原理到生产级应用"})
+
+        result = article_to_list_item(article)
+
+        assert result.display_title == "RAG技术详解：从原理到生产级应用"
+
+    def test_display_title_falls_back_to_topic(self):
+        from app.services.article_service import article_to_list_item
+
+        article = self._make_mock(topic="A test topic about machine learning and AI", outline=None)
+
+        result = article_to_list_item(article)
+
+        assert result.display_title == "A test topic about machine learning and AI"
+
+    def test_display_title_truncates_long_outline_title(self):
+        from app.services.article_service import article_to_list_item
+
+        article = self._make_mock(topic="a topic", outline={"title": "X" * 100})
+
+        result = article_to_list_item(article)
+
+        assert len(result.display_title) <= 80
+        assert result.display_title == "X" * 80
+
+    def test_display_title_falls_back_to_truncated_topic(self):
+        from app.services.article_service import article_to_list_item
+
+        article = self._make_mock(topic="Y" * 100, outline=None)
+
+        result = article_to_list_item(article)
+
+        assert result.display_title == "Y" * 80
