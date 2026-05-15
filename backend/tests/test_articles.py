@@ -1110,3 +1110,171 @@ class TestArticleDisplayTitle:
         result = article_to_list_item(article)
 
         assert result.display_title == "Y" * 80
+
+
+class TestArticleSorting:
+    """GET /api/v1/articles with sort params."""
+
+    @pytest.mark.asyncio
+    async def test_sort_by_created_at_asc(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, patch
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+        id3 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, created_at, updated_at)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1, :c1, :c1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1, :c2, :c2),
+                       (:id3, :t3, 'manual', 'draft', 'local', 1, :c3, :c3)
+            """),
+            {
+                "id1": id1, "t1": "Z article - latest", "c1": datetime(2024, 3, 1, tzinfo=timezone.utc),
+                "id2": id2, "t2": "M article - middle", "c2": datetime(2024, 2, 1, tzinfo=timezone.utc),
+                "id3": id3, "t3": "A article - oldest", "c3": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            },
+        )
+        await test_session.commit()
+
+        try:
+            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
+                response = await client.get("/api/v1/articles?sort_by=created_at&sort_order=asc&limit=50")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                topics = [item["topic"] for item in data["data"]]
+                assert topics.index("A article - oldest") < topics.index("M article - middle")
+                assert topics.index("M article - middle") < topics.index("Z article - latest")
+        finally:
+            for aid in [id1, id2, id3]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_sort_by_created_at_desc_default(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, created_at, updated_at)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1, :c1, :c1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1, :c2, :c2)
+            """),
+            {
+                "id1": id1, "t1": "Older article", "c1": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                "id2": id2, "t2": "Newer article", "c2": datetime(2024, 3, 1, tzinfo=timezone.utc),
+            },
+        )
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert topics.index("Newer article") < topics.index("Older article")
+        finally:
+            for aid in [id1, id2]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+
+class TestArticleSearch:
+    """GET /api/v1/articles with search param."""
+
+    @pytest.mark.asyncio
+    async def test_search_by_topic(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, patch
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1)
+            """),
+            {"id1": id1, "t1": "RAG technology deep dive", "id2": id2, "t2": "Machine learning basics"},
+        )
+        await test_session.commit()
+
+        try:
+            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
+                response = await client.get("/api/v1/articles?search=rag")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                topics = [item["topic"] for item in data["data"]]
+                assert "RAG technology deep dive" in topics
+                assert "Machine learning basics" not in topics
+        finally:
+            for aid in [id1, id2]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_search_outline_title(self, client: AsyncClient, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, patch
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, outline)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1, :o1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1, :o2)
+            """),
+            {
+                "id1": id1, "t1": "some user input topic", "o1": '{"title": "RAG技术详解：从原理到生产级应用"}',
+                "id2": id2, "t2": "another topic", "o2": '{"title": "Machine Learning 101"}',
+            },
+        )
+        await test_session.commit()
+
+        try:
+            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
+                response = await client.get("/api/v1/articles?search=rag")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                topics = [item["topic"] for item in data["data"]]
+                assert "some user input topic" in topics
+                assert "another topic" not in topics
+        finally:
+            for aid in [id1, id2]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_search_no_matches(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        await test_session.execute(
+            text("INSERT INTO articles (id, topic, mode, status, source, version) VALUES (:id, :t, 'manual', 'draft', 'local', 1)"),
+            {"id": uuid4(), "t": "Some article about programming"},
+        )
+        await test_session.commit()
+
+        response = await client.get("/api/v1/articles?search=nonexistent_keyword_xyz")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert len(data["data"]) == 0
