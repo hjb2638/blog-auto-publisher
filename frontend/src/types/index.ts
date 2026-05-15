@@ -9,6 +9,7 @@ export type ArticleMode = 'manual' | 'auto';
 export interface ArticleListItem {
   id: string;
   topic: string;
+  displayTitle: string;
   status: ArticleStatus;
   mode: ArticleMode;
   wpPostUrl: string | null;

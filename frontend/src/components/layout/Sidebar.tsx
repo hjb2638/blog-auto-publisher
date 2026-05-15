@@ -75,7 +75,7 @@ export default function Sidebar() {
                     }`}
                   >
                     <div className="text-sm font-medium text-gray-900 truncate">
-                      {article.topic.length > 50 ? article.topic.slice(0, 50) + '...' : article.topic}
+                      {article.displayTitle}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <StatusBadge status={article.status} />

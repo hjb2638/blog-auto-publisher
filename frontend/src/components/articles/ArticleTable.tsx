@@ -71,7 +71,7 @@ export default function ArticleTable({
                   className="w-4 h-4 rounded border-gray-300"
                 />
               </th>
-              <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Topic</th>
+              <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Title</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Status</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Tokens</th>
               <th className="px-4 py-3 text-xs font-medium text-gray-400 uppercase">Mode</th>
@@ -119,7 +119,7 @@ export default function ArticleTable({
                     onClick={() => navigate(`/articles/${article.id}`)}
                   >
                     <span className="text-sm text-gray-900 line-clamp-1">
-                      {article.topic.length > 60 ? article.topic.slice(0, 60) + '...' : article.topic}
+                      {article.displayTitle}
                     </span>
                   </td>
                   <td className="px-4 py-3">

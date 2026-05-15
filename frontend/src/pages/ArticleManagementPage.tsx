@@ -137,7 +137,7 @@ export default function ArticleManagementPage() {
           batchActionType === 'delete'
             ? `Delete ${selectedCount} article${selectedCount > 1 ? 's' : ''}?${
                 selectedCount <= 5
-                  ? '\n\n' + selectedArticles.map((a) => `• ${a.topic}`).join('\n')
+                  ? '\n\n' + selectedArticles.map((a) => `• ${a.displayTitle}`).join('\n')
                   : ''
               } This action cannot be undone.`
             : batchActionType === 'unpublish'
