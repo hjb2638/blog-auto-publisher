@@ -31,6 +31,43 @@ def _update_rate_limit(headers: dict) -> None:
         _unsplash_remaining = int(remaining)
 
 
+async def _fetch_unsplash_images(keyword: str, per_page: int = 3) -> list[dict]:
+    """Search Unsplash for images matching a keyword. Returns parsed image dicts."""
+    if not settings.unsplash_access_key:
+        logger.warning("Unsplash access key not configured, skipping image search")
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.unsplash.com/search/photos",
+                params={"query": keyword, "per_page": per_page},
+                headers={
+                    "Accept-Version": "v1",
+                    "Authorization": f"Client-ID {settings.unsplash_access_key.get_secret_value()}",
+                },
+            )
+            if resp.status_code == 200:
+                _update_rate_limit(resp.headers)
+                data = resp.json()
+                return [
+                    {
+                        "id": photo["id"],
+                        "url": photo["urls"]["small"],
+                        "full_url": photo["urls"]["regular"],
+                        "thumb_url": photo["urls"]["thumb"],
+                        "alt_text": keyword,
+                        "source": "unsplash",
+                        "source_url": photo["links"]["html"],
+                        "photographer": photo["user"]["name"],
+                    }
+                    for photo in data.get("results", [])
+                ]
+    except Exception as e:
+        logger.warning("Image search failed for '%s': %s", keyword, e)
+    return []
+
+
 async def _search_images(section_heading: str, content_preview: str) -> list[dict]:
     prompt = IMAGE_KEYWORD_PROMPT_TEMPLATE.format(
         heading=section_heading,
@@ -43,69 +80,18 @@ async def _search_images(section_heading: str, content_preview: str) -> list[dic
         logger.warning("Image keyword generation failed: %s", e)
         keywords = [section_heading]
 
-    if not settings.unsplash_access_key:
-        logger.warning("Unsplash access key not configured, skipping image search")
-        return []
-
     images = []
     for keyword in keywords[:2]:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "https://api.unsplash.com/search/photos",
-                    params={"query": keyword, "per_page": 3},
-                    headers={"Accept-Version": "v1", "Authorization": f"Client-ID {settings.unsplash_access_key.get_secret_value()}"},
-                )
-                if resp.status_code == 200:
-                    _update_rate_limit(resp.headers)
-                    data = resp.json()
-                    for photo in data.get("results", []):
-                        images.append({
-                            "id": photo["id"],
-                            "url": photo["urls"]["small"],
-                            "full_url": photo["urls"]["regular"],
-                            "thumb_url": photo["urls"]["thumb"],
-                            "alt_text": keyword,
-                            "source": "unsplash",
-                            "source_url": photo["links"]["html"],
-                            "photographer": photo["user"]["name"],
-                        })
-        except Exception as e:
-            logger.warning("Image search failed for '%s': %s", keyword, e)
+        images.extend(await _fetch_unsplash_images(keyword, per_page=3))
     return images
 
 
 async def _search_images_by_keywords(keywords: list[str], count: int) -> list[dict]:
-    if not settings.unsplash_access_key:
-        logger.warning("Unsplash access key not configured, skipping image search")
-        return []
-
     images = []
     per_keyword = max(1, (count + len(keywords) - 1) // len(keywords)) if keywords else 1
     for keyword in keywords[:3]:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "https://api.unsplash.com/search/photos",
-                    params={"query": keyword, "per_page": per_keyword + 1},
-                    headers={"Accept-Version": "v1", "Authorization": f"Client-ID {settings.unsplash_access_key.get_secret_value()}"},
-                )
-                if resp.status_code == 200:
-                    _update_rate_limit(resp.headers)
-                    data = resp.json()
-                    for photo in data.get("results", [])[:per_keyword]:
-                        images.append({
-                            "id": photo["id"],
-                            "url": photo["urls"]["small"],
-                            "full_url": photo["urls"]["regular"],
-                            "thumb_url": photo["urls"]["thumb"],
-                            "alt_text": keyword,
-                            "source": "unsplash",
-                            "source_url": photo["links"]["html"],
-                            "photographer": photo["user"]["name"],
-                        })
-        except Exception as e:
-            logger.warning("Image search failed for '%s': %s", keyword, e)
+        found = await _fetch_unsplash_images(keyword, per_page=per_keyword + 1)
+        images.extend(found[:per_keyword])
     return images
 
 

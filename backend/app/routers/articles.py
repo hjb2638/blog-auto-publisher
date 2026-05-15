@@ -1,7 +1,6 @@
 import math
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,15 +19,42 @@ from app.schemas.article import (
 )
 from app.models.article import Article
 from app.services import article_service as svc
+from app.services import publish_service
 from app.services.content_service import generate_content, regenerate_sections, revise_sections
 from app.services.image_service import generate_image_plan, search_and_insert_images, insert_images_into_content
 from app.services.outline_service import generate_outline, revise_outline
-from app.services.taxonomy_service import match_or_create_taxonomy
 from app.services.wordpress_service import wordpress_service
-from app.utils.logger import logger
-from app.utils.sanitizer import sanitize_html
 
 router = APIRouter(prefix="/articles", tags=["articles"])
+
+
+def _outline_changed(outline: dict | None, title: str | None, sections: list | None) -> bool:
+    """Check if user-approved outline differs from the stored outline."""
+    if not outline:
+        return True
+    if title and outline.get("title") != title:
+        return True
+    if sections is not None:
+        existing = outline.get("sections", [])
+        if len(sections) != len(existing):
+            return True
+        for i, s in enumerate(sections):
+            if isinstance(s, dict):
+                if s.get("heading") != existing[i].get("heading"):
+                    return True
+                if s.get("key_points") != existing[i].get("key_points"):
+                    return True
+    return False
+
+
+def _plan_changed(image_plan: dict | None, plan: dict | None) -> bool:
+    """Check if the image plan changed from what was stored."""
+    if plan is None:
+        return False
+    if not image_plan:
+        return True
+    return image_plan.get("inline_images") != plan.get("inline_images") or \
+        image_plan.get("cover_image") != plan.get("cover_image")
 
 
 @router.post("", status_code=201)
@@ -81,21 +107,13 @@ async def get_article_status(article_id: UUID, db: AsyncSession = Depends(get_se
     }
 
 
-async def _generate_content_bg(article_id: UUID):
+async def _run_service_bg(article_id: UUID, fn):
+    """Generic background task runner: creates session, fetches article, calls fn."""
     from app.core.database import async_session_factory
     async with async_session_factory() as db:
         article = await svc.get_article(db, article_id)
         if article:
-            await generate_content(db, article)
-            await db.commit()
-
-
-async def _generate_images_bg(article_id: UUID):
-    from app.core.database import async_session_factory
-    async with async_session_factory() as db:
-        article = await svc.get_article(db, article_id)
-        if article:
-            await generate_image_plan(db, article)
+            await fn(db, article)
             await db.commit()
 
 
@@ -117,30 +135,28 @@ async def approve_outline(
         return {"success": True, "data": svc.article_to_detail(article)}
 
     if body.revision_prompt:
-        if body.title and article.outline:
-            article.outline["title"] = body.title
-        if body.sections and article.outline:
-            article.outline["sections"] = [s.model_dump() for s in body.sections]
+        if (body.title or body.sections) and article.outline:
+            sections = [s.model_dump() for s in body.sections] if body.sections else None
+            article = await svc.update_outline(db, article, title=body.title, sections=sections)
         article = await revise_outline(db, article, body.revision_prompt)
         await db.commit()
         await db.refresh(article)
         return {"success": True, "data": svc.article_to_detail(article)}
 
-    if article.content and not svc._outline_changed(article.outline, body.title, body.sections):
+    if article.content and not _outline_changed(article.outline, body.title, body.sections):
         article = await svc.update_status(db, article, "outline_approved")
         article = await svc.update_status(db, article, "content_ready")
         await db.commit()
         await db.refresh(article)
         return {"success": True, "data": svc.article_to_detail(article)}
 
-    if body.title and article.outline:
-        article.outline["title"] = body.title
-    if body.sections and article.outline:
-        article.outline["sections"] = [s.model_dump() for s in body.sections]
+    if (body.title or body.sections) and article.outline:
+        sections = [s.model_dump() for s in body.sections] if body.sections else None
+        article = await svc.update_outline(db, article, title=body.title, sections=sections)
     article = await svc.update_status(db, article, "outline_approved")
     await db.commit()
     await db.refresh(article)
-    background_tasks.add_task(_generate_content_bg, article.id)
+    background_tasks.add_task(_run_service_bg, article.id, generate_content)
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
@@ -155,13 +171,8 @@ async def approve_content(
     if article.status != "content_ready":
         raise HTTPException(409, detail=f"Article is not in content_ready state (current: {article.status})")
 
-    if body.section_edits and article.content:
-        sections = article.content.get("sections", [])
-        for s in sections:
-            slug = s.get("slug", "")
-            if slug in body.section_edits:
-                s["html"] = body.section_edits[slug]
-        article.content["sections"] = sections
+    if body.section_edits:
+        article = await svc.update_content_sections(db, article, body.section_edits)
 
     if body.revision_prompt:
         slugs = body.regenerate_sections or []
@@ -179,17 +190,8 @@ async def approve_content(
     article = await svc.update_status(db, article, "content_approved")
     await db.commit()
     await db.refresh(article)
-    background_tasks.add_task(_generate_images_bg, article.id)
+    background_tasks.add_task(_run_service_bg, article.id, generate_image_plan)
     return {"success": True, "data": svc.article_to_detail(article)}
-
-
-async def _search_images_bg(article_id: UUID):
-    from app.core.database import async_session_factory
-    async with async_session_factory() as db:
-        article = await svc.get_article(db, article_id)
-        if article:
-            await search_and_insert_images(db, article)
-            await db.commit()
 
 
 @router.post("/{article_id}/approve-image-keywords")
@@ -212,7 +214,7 @@ async def approve_image_keywords(
         await db.refresh(article)
         return {"success": True, "data": svc.article_to_detail(article)}
 
-    if not svc._plan_changed(article.image_plan, body.plan.model_dump() if body.plan else None) and article.images:
+    if not _plan_changed(article.image_plan, body.plan.model_dump() if body.plan else None) and article.images:
         article = await svc.update_status(db, article, "images_ready")
         await db.commit()
         await db.refresh(article)
@@ -220,7 +222,7 @@ async def approve_image_keywords(
 
     await db.commit()
     await db.refresh(article)
-    background_tasks.add_task(_search_images_bg, article.id)
+    background_tasks.add_task(_run_service_bg, article.id, search_and_insert_images)
     return {"success": True, "data": svc.article_to_detail(article)}
 
 
@@ -234,14 +236,12 @@ async def approve_final(
     if article.status != "images_ready":
         raise HTTPException(409, detail=f"Article is not in images_ready state (current: {article.status})")
 
-    if body.selected_images and article.images:
-        article.images = [img for img in article.images if img.get("id") in body.selected_images]
-    elif body.remove_images and article.images:
-        article.images = [img for img in article.images if img.get("id") not in body.remove_images]
-
-    if body.cover_image_id and article.images:
-        for img in article.images:
-            img["type"] = "cover" if img.get("id") == body.cover_image_id else "inline"
+    article = await svc.apply_final_images(
+        db, article,
+        selected=body.selected_images,
+        removed=body.remove_images,
+        cover_id=body.cover_image_id,
+    )
 
     article = insert_images_into_content(article)
     article = await svc.update_status(db, article, "final_approved")
@@ -260,86 +260,23 @@ async def publish_article(
     if article.status not in ("final_approved", "failed"):
         raise HTTPException(409, detail=f"Article cannot be published in {article.status} state")
 
-    article = await svc.update_status(db, article, "publishing")
-
     try:
-        title = body.title or (article.outline or {}).get("title", article.topic)
-        content = article.full_html or (article.content or {}).get("full_html", "")
-        slug = body.slug or None
-        outline = article.outline or {}
-
-        category_id = body.category_id
-        tag_ids = list(body.tag_ids) if body.tag_ids else None
-
-        if category_id is None and body.category_name:
-            new_cat = await wordpress_service.create_category(body.category_name)
-            category_id = new_cat["id"]
-            logger.info("Created custom category: %s -> id=%d", body.category_name, category_id)
-        elif category_id is None and outline.get("category"):
-            matched_cat, _ = await match_or_create_taxonomy(
-                wordpress_service,
-                outline["category"],
-                None,
-                auto_create=body.auto_create_taxonomy,
-            )
-            if matched_cat is not None:
-                category_id = matched_cat
-
-        if tag_ids is None:
-            tag_ids = []
-        if body.tag_names:
-            for tag_name in body.tag_names:
-                new_tag = await wordpress_service.create_tag(tag_name)
-                tag_ids.append(new_tag["id"])
-                logger.info("Created custom tag: %s -> id=%d", tag_name, new_tag["id"])
-        elif not tag_ids and outline.get("tags"):
-            _, matched_tags = await match_or_create_taxonomy(
-                wordpress_service,
-                None,
-                outline["tags"],
-                auto_create=body.auto_create_taxonomy,
-            )
-            if matched_tags:
-                tag_ids = matched_tags
-
-        featured_media_id = None
-        cover_image = None
-        if article.images:
-            cover_image = next((img for img in article.images if img.get("type") == "cover"), None)
-        if cover_image:
-            try:
-                alt = cover_image.get("alt_text", title)
-                media = await wordpress_service.upload_media(cover_image.get("full_url") or cover_image["url"], alt)
-                featured_media_id = media["id"]
-                logger.info("Cover image uploaded: wp_media_id=%d", featured_media_id)
-            except Exception as e:
-                logger.warning("Failed to upload cover image: %s", e)
-                article.error_message = f"Cover image upload failed: {str(e)}"
-
-        wp_post = await wordpress_service.create_post(
-            title=title,
-            content=content,
-            slug=slug,
+        article = await publish_service.publish_article(
+            db, article, wordpress_service,
+            title=body.title,
+            slug=body.slug,
             status=body.status,
-            category_id=category_id,
-            tag_ids=tag_ids if tag_ids else None,
-            featured_media_id=featured_media_id,
+            category_id=body.category_id,
+            category_name=body.category_name,
+            tag_ids=list(body.tag_ids) if body.tag_ids else None,
+            tag_names=body.tag_names,
+            auto_create_taxonomy=body.auto_create_taxonomy,
         )
-
-        article.wp_post_id = wp_post["id"]
-        article.wp_post_url = wp_post["link"]
-        article.wp_slug = wp_post["slug"]
-        article = await svc.update_status(db, article, "published")
         await db.commit()
         await db.refresh(article)
-
-        logger.info("Article published: id=%s wp_post_id=%s url=%s", article.id, wp_post["id"], wp_post["link"])
         return {"success": True, "data": svc.article_to_detail(article)}
-
-    except Exception as e:
-        await db.rollback()
-        article = await svc.mark_failed(db, article, "publishing", str(e))
-        raise HTTPException(502, detail=f"WordPress publish failed: {str(e)}")
+    except publish_service.PublishError as e:
+        raise HTTPException(502, detail=f"WordPress publish failed: {e}")
 
 
 @router.post("/{article_id}/regenerate")
@@ -368,22 +305,12 @@ async def regenerate_article(
 
 
 
-STEP_BACK_MAP = {
-    "outline_ready": "draft",
-    "content_ready": "outline_ready",
-    "image_keywords_generating": "content_ready",
-    "image_keywords_ready": "content_ready",
-    "images_ready": "image_keywords_ready",
-    "final_approved": "images_ready",
-}
-
-
 @router.post("/{article_id}/step-back")
 async def step_back(article_id: UUID, db: AsyncSession = Depends(get_session)):
     article = await svc.get_article(db, article_id)
     if not article:
         raise HTTPException(404, detail="Article not found")
-    prev = STEP_BACK_MAP.get(article.status)
+    prev = svc.STEP_BACK_MAP.get(article.status)
     if not prev:
         raise HTTPException(409, detail=f"Cannot step back from {article.status}")
     article = await svc.update_status(db, article, prev)
@@ -406,11 +333,18 @@ async def batch_action(body: BatchActionRequest, db: AsyncSession = Depends(get_
                 failed.append({"id": str(article_id), "reason": "Cannot modify while publishing"})
                 continue
             if body.action == "delete":
-                await db.delete(article)
-                processed += 1
+                try:
+                    await svc.delete_article(
+                        db, article,
+                        wordpress_service=wordpress_service,
+                        delete_wp=True,
+                    )
+                    processed += 1
+                except ValueError as e:
+                    failed.append({"id": str(article_id), "reason": str(e)})
             elif body.action == "cancel":
                 try:
-                    await svc.update_status(db, article, "cancelled")
+                    await svc.cancel_article(db, article)
                     processed += 1
                 except ValueError as e:
                     failed.append({"id": str(article_id), "reason": str(e)})
@@ -429,21 +363,22 @@ async def delete_article(
     article = await svc.get_article(db, article_id)
     if not article:
         raise HTTPException(404, detail="Article not found")
-    if article.status == "publishing":
-        raise HTTPException(409, detail="Cannot delete article while publishing")
 
-    wp_deleted = False
-    if delete_wp and article.wp_post_id:
-        try:
-            wp_deleted = await wordpress_service.delete_post(article.wp_post_id)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                raise HTTPException(502, detail="WordPress auth failed. Check application password permissions.")
-            raise HTTPException(502, detail=f"WordPress delete failed: {e}")
-
-    await db.delete(article)
-    await db.commit()
-    return {"success": True, "data": {"deleted": True, "id": str(article_id), "wpDeleted": wp_deleted}}
+    try:
+        result = await svc.delete_article(
+            db, article,
+            wordpress_service=wordpress_service if delete_wp else None,
+            delete_wp=delete_wp,
+        )
+        await db.commit()
+        return {"success": True, "data": {"deleted": result["deleted"], "wpDeleted": result["wp_deleted"], "id": str(article_id)}}
+    except ValueError as e:
+        msg = str(e)
+        if "auth" in msg.lower():
+            raise HTTPException(502, detail="WordPress auth failed. Check application password permissions.")
+        if "publishing" in msg.lower():
+            raise HTTPException(409, detail=msg)
+        raise HTTPException(502, detail=f"WordPress delete failed: {e}")
 
 
 @router.post("/{article_id}/update-wp")
@@ -484,5 +419,17 @@ async def update_wp_article(
 
 @router.post("/sync-wp")
 async def sync_wp():
-    result = await wordpress_service.sync_all_posts()
+    from app.core.database import async_session_factory
+
+    async def _importer(post: dict) -> str:
+        async with async_session_factory() as db:
+            try:
+                result = await svc.import_from_wordpress(db, post)
+                await db.commit()
+                return result
+            except Exception:
+                await db.rollback()
+                raise
+
+    result = await wordpress_service.sync_all_posts(importer=_importer)
     return {"success": True, "data": result}

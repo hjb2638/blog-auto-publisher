@@ -116,8 +116,8 @@ async def _create_test_article(db: AsyncSession, **kwargs) -> str:
     article_id = kwargs.pop("id", uuid4())
     await db.execute(
         text("""
-            INSERT INTO articles (id, topic, mode, status, version, wp_post_id, wp_post_url, wp_slug, source, full_html, outline)
-            VALUES (:id, :topic, :mode, :status, :version, :wp_post_id, :wp_post_url, :wp_slug, :source, :full_html, :outline)
+            INSERT INTO articles (id, topic, mode, status, version, wp_post_id, wp_post_url, wp_slug, source, full_html, outline, content)
+            VALUES (:id, :topic, :mode, :status, :version, :wp_post_id, :wp_post_url, :wp_slug, :source, :full_html, :outline, cast(:content AS jsonb))
         """),
         {
             "id": article_id,
@@ -131,6 +131,7 @@ async def _create_test_article(db: AsyncSession, **kwargs) -> str:
             "source": kwargs.get("source", "local"),
             "full_html": kwargs.get("full_html"),
             "outline": kwargs.get("outline"),
+            "content": kwargs.get("content"),
         },
     )
     await db.commit()
@@ -139,8 +140,13 @@ async def _create_test_article(db: AsyncSession, **kwargs) -> str:
 
 async def _cleanup_article(db: AsyncSession, article_id: str):
     """Delete a test article by ID, ignoring if it no longer exists."""
-    await db.execute(text("DELETE FROM articles WHERE id = :id"), {"id": UUID(article_id)})
-    await db.commit()
+    try:
+        await db.execute(text("DELETE FROM articles WHERE id = :id"), {"id": UUID(article_id)})
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await db.execute(text("DELETE FROM articles WHERE id = :id"), {"id": UUID(article_id)})
+        await db.commit()
 
 
 class TestDeleteArticleWithWPSync:
@@ -272,3 +278,528 @@ class TestUpdateWpArticle:
             assert response.status_code == 422
         finally:
             await _cleanup_article(test_session, article_id)
+
+
+# ---------------------------------------------------------------------------
+# Batch 2: Service method unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestServiceUpdateOutline:
+    """article_service.update_outline()"""
+
+    @pytest.mark.asyncio
+    async def test_updates_title(self, test_session: AsyncSession):
+        from app.services.article_service import update_outline
+        from app.models.article import Article
+
+        article_id = await _create_test_article(test_session, outline='{"title":"Old","sections":[]}')
+        try:
+            result = await update_outline(db=test_session,
+                article=await test_session.get(Article, UUID(article_id)),
+                title="New Title")
+            assert result.outline["title"] == "New Title"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_updates_sections(self, test_session: AsyncSession):
+        from app.services.article_service import update_outline
+        from app.models.article import Article
+
+        article_id = await _create_test_article(test_session, outline='{"title":"T","sections":[{"heading":"A"}]}')
+        try:
+            sections = [{"heading": "Updated A"}, {"heading": "New B"}]
+            result = await update_outline(db=test_session,
+                article=await test_session.get(Article, UUID(article_id)),
+                sections=sections)
+            assert len(result.outline["sections"]) == 2
+            assert result.outline["sections"][0]["heading"] == "Updated A"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_none_outline_sets_empty_dict(self, test_session: AsyncSession):
+        from app.services.article_service import update_outline
+        from app.models.article import Article
+
+        article_id = await _create_test_article(test_session, outline=None)
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+            assert article.outline is None
+            result = await update_outline(db=test_session, article=article, title="Started fresh")
+            assert result.outline["title"] == "Started fresh"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestServiceUpdateContentSections:
+    """article_service.update_content_sections()"""
+
+    @pytest.mark.asyncio
+    async def test_updates_section_html(self, test_session: AsyncSession):
+        from app.services.article_service import update_content_sections
+        from app.models.article import Article
+
+        import json
+        content = json.dumps({"sections": [{"slug": "intro", "html": "<p>old</p>"}]})
+        article_id = await _create_test_article(test_session, content=content)
+        try:
+            result = await update_content_sections(
+                test_session,
+                await test_session.get(Article, UUID(article_id)),
+                {"intro": "<p>new</p>"},
+            )
+            assert result.content["sections"][0]["html"] == "<p>new</p>"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_ignores_unknown_slug(self, test_session: AsyncSession):
+        from app.services.article_service import update_content_sections
+        from app.models.article import Article
+
+        import json
+        content = json.dumps({"sections": [{"slug": "intro", "html": "<p>stay</p>"}]})
+        article_id = await _create_test_article(test_session, content=content)
+        try:
+            result = await update_content_sections(
+                test_session,
+                await test_session.get(Article, UUID(article_id)),
+                {"nonexistent": "<p>ignored</p>"},
+            )
+            assert result.content["sections"][0]["html"] == "<p>stay</p>"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestServiceApplyFinalImages:
+    """article_service.apply_final_images()"""
+
+    @pytest.mark.asyncio
+    async def test_selects_images(self, test_session: AsyncSession):
+        from app.services.article_service import apply_final_images
+        from app.models.article import Article
+
+        import json
+        images = json.dumps([
+            {"id": "img-1", "url": "https://example.com/1.jpg"},
+            {"id": "img-2", "url": "https://example.com/2.jpg"},
+            {"id": "img-3", "url": "https://example.com/3.jpg"},
+        ])
+        article_id = await _create_test_article(test_session, full_html="<p>content</p>")
+        await test_session.execute(
+            text("UPDATE articles SET images = :images WHERE id = :id"),
+            {"images": images, "id": UUID(article_id)},
+        )
+        await test_session.commit()
+        try:
+            result = await apply_final_images(
+                test_session,
+                await test_session.get(Article, UUID(article_id)),
+                selected=["img-1", "img-3"],
+            )
+            assert len(result.images) == 2
+            assert result.images[0]["id"] == "img-1"
+            assert result.images[1]["id"] == "img-3"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_removes_images(self, test_session: AsyncSession):
+        from app.services.article_service import apply_final_images
+        from app.models.article import Article
+
+        import json
+        images = json.dumps([
+            {"id": "img-1", "url": "https://example.com/1.jpg"},
+            {"id": "img-2", "url": "https://example.com/2.jpg"},
+        ])
+        article_id = await _create_test_article(test_session, full_html="<p>content</p>")
+        await test_session.execute(
+            text("UPDATE articles SET images = :images WHERE id = :id"),
+            {"images": images, "id": UUID(article_id)},
+        )
+        await test_session.commit()
+        try:
+            result = await apply_final_images(
+                test_session,
+                await test_session.get(Article, UUID(article_id)),
+                removed=["img-1"],
+            )
+            assert len(result.images) == 1
+            assert result.images[0]["id"] == "img-2"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_sets_cover_image(self, test_session: AsyncSession):
+        from app.services.article_service import apply_final_images
+        from app.models.article import Article
+
+        import json
+        images = json.dumps([
+            {"id": "img-1", "url": "https://example.com/1.jpg"},
+            {"id": "img-2", "url": "https://example.com/2.jpg"},
+        ])
+        article_id = await _create_test_article(test_session, full_html="<p>content</p>")
+        await test_session.execute(
+            text("UPDATE articles SET images = :images WHERE id = :id"),
+            {"images": images, "id": UUID(article_id)},
+        )
+        await test_session.commit()
+        try:
+            result = await apply_final_images(
+                test_session,
+                await test_session.get(Article, UUID(article_id)),
+                cover_id="img-1",
+            )
+            assert result.images[0]["type"] == "cover"
+            assert result.images[1]["type"] == "inline"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+class TestPublishService:
+    """publish_service.publish_article()"""
+
+    @pytest.mark.asyncio
+    async def test_publishes_with_minimal_params(self, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.models.article import Article
+        from app.services import publish_service
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="final_approved",
+            outline=json.dumps({"title": "Test Pub", "sections": []}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+
+            wp_mock = MagicMock()
+            wp_mock.create_post = AsyncMock(return_value={
+                "id": 999, "link": "https://example.com/test", "slug": "test-pub",
+            })
+
+            result = await publish_service.publish_article(
+                db=test_session,
+                article=article,
+                wordpress_service=wp_mock,
+                status="publish",
+            )
+
+            assert result.wp_post_id == 999
+            assert result.wp_post_url == "https://example.com/test"
+            assert result.wp_slug == "test-pub"
+            assert result.status == "published"
+            wp_mock.create_post.assert_called_once()
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_raises_publish_error_on_failure(self, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.models.article import Article
+        from app.services import publish_service
+        import json
+
+        article_id = await _create_test_article(
+            test_session,
+            status="final_approved",
+            outline=json.dumps({"title": "Fail Pub", "sections": []}),
+        )
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+
+            wp_mock = MagicMock()
+            wp_mock.create_post = AsyncMock(side_effect=Exception("WP API down"))
+
+            with pytest.raises(publish_service.PublishError):
+                await publish_service.publish_article(
+                    db=test_session,
+                    article=article,
+                    wordpress_service=wp_mock,
+                    status="publish",
+                )
+
+            await test_session.refresh(article)
+            assert article.status == "failed"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_uploads_cover_image(self, test_session: AsyncSession):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.models.article import Article
+        from app.services import publish_service
+        import json
+
+        images = json.dumps([
+            {"id": "cover-1", "url": "https://images.unsplash.com/photo-1", "type": "cover", "alt_text": "Cover image"},
+            {"id": "inline-1", "url": "https://images.unsplash.com/photo-2", "type": "inline"},
+        ])
+        article_id = await _create_test_article(
+            test_session,
+            status="final_approved",
+            outline=json.dumps({"title": "Cover Test", "sections": []}),
+            full_html="<p>content</p>",
+        )
+        await test_session.execute(
+            text("UPDATE articles SET images = :images WHERE id = :id"),
+            {"images": images, "id": UUID(article_id)},
+        )
+        await test_session.commit()
+        try:
+            article = await test_session.get(Article, UUID(article_id))
+
+            wp_mock = MagicMock()
+            wp_mock.create_post = AsyncMock(return_value={
+                "id": 1000, "link": "https://example.com/cover-test", "slug": "cover-test",
+            })
+            wp_mock.upload_media = AsyncMock(return_value={"id": 555})
+
+            result = await publish_service.publish_article(
+                db=test_session,
+                article=article,
+                wordpress_service=wp_mock,
+                status="publish",
+            )
+
+            assert result.wp_post_id == 1000
+            wp_mock.upload_media.assert_called_once()
+            wp_mock.create_post.assert_called_once()
+            _, kwargs = wp_mock.create_post.call_args
+            assert kwargs["featured_media_id"] == 555
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: Service layer consolidation tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchUnsplashImages:
+    """_fetch_unsplash_images() — new shared helper for Unsplash API calls."""
+
+    @pytest.mark.asyncio
+    async def test_parses_response_correctly(self):
+        """Verify successful Unsplash API call returns parsed image dicts."""
+        from app.services.image_service import _fetch_unsplash_images
+        from unittest.mock import MagicMock
+
+        mock_response_data = {
+            "results": [
+                {
+                    "id": "photo-abc",
+                    "urls": {"small": "https://ex.com/s.jpg", "regular": "https://ex.com/r.jpg", "thumb": "https://ex.com/t.jpg"},
+                    "links": {"html": "https://unsplash.com/photo-abc"},
+                    "user": {"name": "Jane Photo"},
+                }
+            ]
+        }
+
+        mock_secret = MagicMock()
+        mock_secret.get_secret_value.return_value = "mock-key"
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = mock_response_data
+        mock_resp.headers = {}
+        mock_get = AsyncMock(return_value=mock_resp)
+
+        with (
+            patch('app.services.image_service.settings.unsplash_access_key', mock_secret),
+            patch('app.services.image_service.httpx.AsyncClient.get', mock_get),
+        ):
+            results = await _fetch_unsplash_images("test keyword", per_page=3)
+
+        assert len(results) == 1
+        assert results[0]["id"] == "photo-abc"
+        assert results[0]["alt_text"] == "test keyword"
+        assert results[0]["source"] == "unsplash"
+        assert results[0]["photographer"] == "Jane Photo"
+        assert "full_url" in results[0]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_api_error(self):
+        """Verify non-200 response returns empty list gracefully."""
+        from app.services.image_service import _fetch_unsplash_images
+        from unittest.mock import MagicMock
+
+        mock_secret = MagicMock()
+        mock_secret.get_secret_value.return_value = "mock-key"
+
+        with (
+            patch('app.services.image_service.settings.unsplash_access_key', mock_secret),
+            patch('app.services.image_service.httpx.AsyncClient') as mock_client_cls,
+        ):
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            mock_resp = AsyncMock()
+            mock_resp.status_code = 403
+            mock_resp.headers = {}
+            mock_client.get.return_value = mock_resp
+
+            results = await _fetch_unsplash_images("test", per_page=3)
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_key_missing(self):
+        """Verify missing Unsplash key returns empty list."""
+        from app.services.image_service import _fetch_unsplash_images
+
+        with patch('app.services.image_service.settings.unsplash_access_key', None):
+            results = await _fetch_unsplash_images("test", per_page=3)
+
+        assert results == []
+
+
+class TestSyncAllPostsWithImporter:
+    """sync_all_posts(importer=...) callback pattern."""
+
+    @pytest.mark.asyncio
+    async def test_importer_receives_posts(self):
+        """Verify importer callback is invoked for fetched posts."""
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.wordpress_service import wordpress_service
+
+        mock_page_1 = [
+            {"id": 101, "title": {"rendered": "Post 1"}},
+            {"id": 102, "title": {"rendered": "Post 2"}},
+        ]
+        mock_headers = {"x-wp-totalpages": "1", "x-wp-total": "2"}
+
+        with patch.object(wordpress_service, '_request_with_headers', new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = (mock_page_1, mock_headers)
+
+            call_count = 0
+            results = []
+
+            async def _importer(post: dict) -> str:
+                nonlocal call_count, results
+                call_count += 1
+                results.append(post["id"])
+                return "imported"
+
+            result = await wordpress_service.sync_all_posts(importer=_importer)
+
+            assert call_count == 2
+            assert results == [101, 102]
+            assert result["imported"] == 2
+
+
+class TestImportFromWordPress:
+    """article_service.import_from_wordpress()"""
+
+    @pytest.mark.asyncio
+    async def test_creates_article_from_wp_post(self, test_session: AsyncSession):
+        """Verify WP post dict creates a new Article with correct fields."""
+        from app.services.article_service import import_from_wordpress
+
+        wp_post = {
+            "id": 99999,
+            "title": {"rendered": "A Test WordPress Post"},
+            "link": "https://example.com/test-wp-post",
+            "slug": "test-wp-post",
+            "content": {"rendered": "<p>Hello from WordPress</p>"},
+        }
+
+        try:
+            result = await import_from_wordpress(test_session, wp_post)
+            assert result == "imported"
+
+            from app.models.article import Article
+            from sqlalchemy import select
+            article = (await test_session.execute(
+                select(Article).where(Article.wp_post_id == 99999)
+            )).scalar()
+            assert article is not None
+            assert article.topic == "A Test WordPress Post"
+            assert article.wp_slug == "test-wp-post"
+            assert article.wp_post_url == "https://example.com/test-wp-post"
+            assert article.full_html == "<p>Hello from WordPress</p>"
+            assert article.status == "published"
+            assert article.source == "wordpress"
+        finally:
+            await test_session.execute(
+                text("DELETE FROM articles WHERE wp_post_id = 99999")
+            )
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_skips_existing_wp_post(self, test_session: AsyncSession):
+        """Verify existing wp_post_id returns 'skipped'."""
+        from app.services.article_service import import_from_wordpress
+
+        article_id = await _create_test_article(
+            test_session,
+            wp_post_id=88888,
+            topic="Existing WP Article",
+        )
+        try:
+            wp_post = {
+                "id": 88888,
+                "title": {"rendered": "Existing WP Article"},
+                "link": "https://example.com/existing",
+                "slug": "existing",
+                "content": {"rendered": "<p>Existing</p>"},
+            }
+
+            result = await import_from_wordpress(test_session, wp_post)
+            assert result == "skipped"
+        finally:
+            await _cleanup_article(test_session, article_id)
+
+    @pytest.mark.asyncio
+    async def test_short_title_appends_suffix(self, test_session: AsyncSession):
+        """Verify short title gets '- Technical Article' appended."""
+        from app.services.article_service import import_from_wordpress
+
+        short_post = {
+            "id": 77777,
+            "title": {"rendered": "Short"},
+            "link": "https://example.com/short",
+            "slug": "short",
+            "content": {"rendered": "<p>Short content</p>"},
+        }
+
+        try:
+            await import_from_wordpress(test_session, short_post)
+
+            from app.models.article import Article
+            from sqlalchemy import select
+            article = (await test_session.execute(
+                select(Article).where(Article.wp_post_id == 77777)
+            )).scalar()
+            assert article is not None
+            assert "Technical Article" in article.topic
+            assert len(article.topic) > 10
+        finally:
+            await test_session.execute(
+                text("DELETE FROM articles WHERE wp_post_id = 77777")
+            )
+            await test_session.commit()
+
+
+class TestStepBackMap:
+    """STEP_BACK_MAP in article_service.py"""
+
+    def test_has_expected_values(self):
+        """Verify STEP_BACK_MAP contains all expected step-back targets."""
+        from app.services.article_service import STEP_BACK_MAP
+
+        expected = {
+            "outline_ready": "draft",
+            "content_ready": "outline_ready",
+            "image_keywords_generating": "content_ready",
+            "image_keywords_ready": "content_ready",
+            "images_ready": "image_keywords_ready",
+            "final_approved": "images_ready",
+        }
+
+        assert STEP_BACK_MAP == expected

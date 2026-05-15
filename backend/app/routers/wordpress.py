@@ -50,10 +50,7 @@ async def get_wp_tags():
 @router.get("/posts")
 async def get_wp_posts(page: int = 1, per_page: int = 20, status: str | None = None):
     try:
-        path = f"/wp/v2/posts?per_page={per_page}&page={page}"
-        if status:
-            path += f"&status={status}"
-        posts = await wordpress_service._request("GET", path)
+        posts = await wordpress_service.get_posts_paginated(page, per_page, status)
         return {"success": True, "data": posts, "meta": {"page": page, "per_page": per_page}}
     except Exception as e:
         raise HTTPException(502, detail=f"Failed to fetch WP posts: {str(e)}")
@@ -62,7 +59,7 @@ async def get_wp_posts(page: int = 1, per_page: int = 20, status: str | None = N
 @router.get("/posts/{post_id}")
 async def get_wp_post(post_id: int):
     try:
-        post = await wordpress_service._request("GET", f"/wp/v2/posts/{post_id}")
+        post = await wordpress_service.get_post(post_id)
         return {"success": True, "data": post}
     except Exception as e:
         raise HTTPException(502, detail=f"Failed to fetch WP post: {str(e)}")
@@ -71,7 +68,7 @@ async def get_wp_post(post_id: int):
 @router.put("/posts/{post_id}")
 async def update_wp_post(post_id: int, body: dict):
     try:
-        updated = await wordpress_service._request("POST", f"/wp/v2/posts/{post_id}", body)
+        updated = await wordpress_service.update_post(post_id, **body)
         return {"success": True, "data": updated}
     except Exception as e:
         raise HTTPException(502, detail=f"Failed to update WP post: {str(e)}")
@@ -80,10 +77,7 @@ async def update_wp_post(post_id: int, body: dict):
 @router.delete("/posts/{post_id}")
 async def delete_wp_post(post_id: int, force: bool = False):
     try:
-        path = f"/wp/v2/posts/{post_id}"
-        if force:
-            path += "?force=true"
-        await wordpress_service._request("DELETE", path)
+        await wordpress_service.delete_post(post_id, force=force)
         return {"success": True, "data": {"deleted": True, "id": post_id}}
     except Exception as e:
         raise HTTPException(502, detail=f"Failed to delete WP post: {str(e)}")

@@ -1,5 +1,6 @@
 from uuid import UUID
 
+import httpx
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +36,15 @@ VALID_TRANSITIONS = {
 }
 
 GENERATING_STATES = {"outline_generating", "content_generating", "image_keywords_generating", "image_searching", "publishing"}
+
+STEP_BACK_MAP = {
+    "outline_ready": "draft",
+    "content_ready": "outline_ready",
+    "image_keywords_generating": "content_ready",
+    "image_keywords_ready": "content_ready",
+    "images_ready": "image_keywords_ready",
+    "final_approved": "images_ready",
+}
 
 
 def validate_transition(from_status: str, to_status: str) -> bool:
@@ -95,35 +105,121 @@ async def mark_failed(db: AsyncSession, article: Article, stage: str, error: str
     return await update_status(db, article, "failed")
 
 
+async def delete_article(
+    db: AsyncSession,
+    article: Article,
+    wordpress_service=None,
+    delete_wp: bool = False,
+) -> dict:
+    """Delete an article, optionally syncing to WordPress.
+
+    Returns: {"deleted": True, "wp_deleted": bool}
+    """
+    if article.status == "publishing":
+        raise ValueError("Cannot delete article while publishing")
+
+    wp_deleted = False
+    if delete_wp and article.wp_post_id and wordpress_service:
+        try:
+            wp_deleted = await wordpress_service.delete_post(article.wp_post_id)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise ValueError("WordPress auth failed")
+            raise
+
+    await db.delete(article)
+    await db.flush()
+    logger.info("Article deleted: id=%s wp_deleted=%s", article.id, wp_deleted)
+    return {"deleted": True, "wp_deleted": wp_deleted}
+
+
+async def cancel_article(db: AsyncSession, article: Article) -> Article:
+    """Cancel an article, transitioning it to cancelled state."""
+    return await update_status(db, article, "cancelled")
+
+
+async def update_outline(
+    db: AsyncSession, article: Article,
+    title: str | None = None, sections: list[dict] | None = None,
+) -> Article:
+    """Update an article's outline fields."""
+    if article.outline is None:
+        article.outline = {}
+    if title is not None:
+        article.outline["title"] = title
+    if sections is not None:
+        article.outline["sections"] = sections
+    await db.flush()
+    return article
+
+
+async def update_content_sections(
+    db: AsyncSession, article: Article, section_edits: dict[str, str],
+) -> Article:
+    """Apply section-level HTML edits to an article's content."""
+    if not article.content:
+        article.content = {}
+    sections = article.content.get("sections", [])
+    for s in sections:
+        slug = s.get("slug", "")
+        if slug in section_edits:
+            s["html"] = section_edits[slug]
+    article.content["sections"] = sections
+    await db.flush()
+    return article
+
+
+async def apply_final_images(
+    db: AsyncSession, article: Article,
+    selected: list[str] | None = None,
+    removed: list[str] | None = None,
+    cover_id: str | None = None,
+) -> Article:
+    """Apply final image selections: filter, remove, and set cover."""
+    images = article.images or []
+    if selected:
+        images = [img for img in images if img.get("id") in selected]
+    elif removed:
+        images = [img for img in images if img.get("id") not in removed]
+    if cover_id:
+        for img in images:
+            img["type"] = "cover" if img.get("id") == cover_id else "inline"
+    article.images = images
+    await db.flush()
+    return article
+
+
+async def import_from_wordpress(db: AsyncSession, post: dict) -> str:
+    """Import a single WordPress post as an Article. Returns 'imported' or 'skipped'."""
+    existing = (await db.execute(
+        select(Article).where(Article.wp_post_id == post["id"])
+    )).scalar()
+    if existing:
+        return "skipped"
+
+    topic = post["title"]["rendered"]
+    if len(topic) < 10:
+        topic = topic + " - Technical Article"
+    topic = topic[:500]
+
+    article = Article(
+        topic=topic,
+        mode="manual",
+        status="published",
+        source="wordpress",
+        wp_post_id=post["id"],
+        wp_post_url=post["link"],
+        wp_slug=post["slug"],
+        full_html=post["content"]["rendered"],
+    )
+    db.add(article)
+    await db.flush()
+    return "imported"
+
+
 async def is_auto_mode(article: Article) -> bool:
     return article.mode == "auto"
 
-
-def _outline_changed(outline: dict | None, title: str | None, sections: list | None) -> bool:
-    if not outline:
-        return True
-    if title and outline.get("title") != title:
-        return True
-    if sections is not None:
-        existing = outline.get("sections", [])
-        if len(sections) != len(existing):
-            return True
-        for i, s in enumerate(sections):
-            if isinstance(s, dict):
-                if s.get("heading") != existing[i].get("heading"):
-                    return True
-                if s.get("key_points") != existing[i].get("key_points"):
-                    return True
-    return False
-
-
-def _plan_changed(image_plan: dict | None, plan: dict | None) -> bool:
-    if plan is None:
-        return False
-    if not image_plan:
-        return True
-    return image_plan.get("inline_images") != plan.get("inline_images") or \
-        image_plan.get("cover_image") != plan.get("cover_image")
 
 
 def article_to_list_item(a: Article) -> ArticleListItem:

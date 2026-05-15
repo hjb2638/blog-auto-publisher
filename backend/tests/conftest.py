@@ -16,7 +16,7 @@ from app.core.dependencies import get_settings, get_session
 from app.core.config import Settings
 from app.models.base import Base
 
-TEST_DATABASE_URL = "postgresql+asyncpg://bojinhu:bojinhu@localhost:5433/blog_db"
+TEST_DATABASE_URL = "postgresql+asyncpg://bojinhu:bojinhu@localhost:5433/blog_test_db"
 
 
 @pytest.fixture(scope="session")
@@ -26,10 +26,23 @@ def anyio_backend():
 
 @pytest_asyncio.fixture
 async def test_engine():
+    import asyncpg
+    sys_conn = await asyncpg.connect(
+        "postgresql://bojinhu:bojinhu@localhost:5433/postgres"
+    )
+    exists = await sys_conn.fetchval(
+        "SELECT 1 FROM pg_database WHERE datname='blog_test_db'"
+    )
+    if not exists:
+        await sys_conn.execute("CREATE DATABASE blog_test_db")
+    await sys_conn.close()
+
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 

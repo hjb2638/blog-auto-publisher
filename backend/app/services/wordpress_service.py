@@ -1,4 +1,5 @@
 import base64
+from collections.abc import Awaitable, Callable
 
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -68,6 +69,17 @@ class WordPressService:
     async def get_posts(self, per_page: int = 20) -> list[dict]:
         return await self._request("GET", f"/wp/v2/posts?per_page={per_page}")
 
+    async def get_post(self, post_id: int) -> dict:
+        """Get a single WordPress post by ID."""
+        return await self._request("GET", f"/wp/v2/posts/{post_id}")
+
+    async def get_posts_paginated(self, page: int = 1, per_page: int = 20, status: str | None = None) -> list[dict]:
+        """Get paginated WordPress posts, optionally filtered by status."""
+        path = f"/wp/v2/posts?per_page={per_page}&page={page}"
+        if status:
+            path += f"&status={status}"
+        return await self._request("GET", path)
+
     async def create_post(
         self,
         title: str,
@@ -124,6 +136,7 @@ class WordPressService:
         content: str | None = None,
         status: str | None = None,
         slug: str | None = None,
+        **kwargs,
     ) -> dict:
         data: dict = {}
         if title is not None:
@@ -134,6 +147,7 @@ class WordPressService:
             data["status"] = status
         if slug is not None:
             data["slug"] = slug
+        data.update(kwargs)
         if not data:
             return {}
         logger.info("WP update post: id=%d fields=%s", post_id, list(data.keys()))
@@ -187,7 +201,10 @@ class WordPressService:
             resp.raise_for_status()
             return resp.json(), dict(resp.headers)
 
-    async def sync_all_posts(self) -> dict:
+    async def sync_all_posts(
+        self, importer: Callable[[dict], Awaitable[str]] | None = None
+    ) -> dict:
+        """Fetch all WP posts. If importer is provided, call it for each post."""
         total_fetched = 0
         imported = 0
         skipped = 0
@@ -196,11 +213,6 @@ class WordPressService:
         first_result, headers = await self._request_with_headers("GET", "/wp/v2/posts?per_page=100&page=1")
         total_pages = int(headers.get("x-wp-totalpages", "1"))
         logger.info("WP sync: total_pages=%d", total_pages)
-
-        from app.models.article import Article
-        from sqlalchemy import select
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from app.core.database import async_session_factory
 
         posts = list(first_result)
         total_fetched += len(posts)
@@ -214,34 +226,15 @@ class WordPressService:
                 logger.warning("WP sync: failed to fetch page %d: %s", page, e)
                 failed += 1
 
-        async with async_session_factory() as db:
+        if importer:
             for post in posts:
                 try:
-                    existing = (await db.execute(
-                        select(Article).where(Article.wp_post_id == post["id"])
-                    )).scalar()
-                    if existing:
+                    result = await importer(post)
+                    if result == "skipped":
                         skipped += 1
-                        continue
-                    topic = post["title"]["rendered"]
-                    if len(topic) < 10:
-                        topic = topic + " - Technical Article"
-                    topic = topic[:500]
-                    article = Article(
-                        topic=topic,
-                        mode="manual",
-                        status="published",
-                        source="wordpress",
-                        wp_post_id=post["id"],
-                        wp_post_url=post["link"],
-                        wp_slug=post["slug"],
-                        full_html=post["content"]["rendered"],
-                    )
-                    db.add(article)
-                    await db.commit()
-                    imported += 1
+                    elif result == "imported":
+                        imported += 1
                 except Exception as e:
-                    await db.rollback()
                     logger.warning("WP sync: failed to import post %d: %s", post.get("id"), e)
                     failed += 1
 
