@@ -1117,7 +1117,6 @@ class TestArticleSorting:
 
     @pytest.mark.asyncio
     async def test_sort_by_created_at_asc(self, client: AsyncClient, test_session: AsyncSession):
-        from unittest.mock import AsyncMock, patch
         from uuid import uuid4
         from datetime import datetime, timezone
         from sqlalchemy import text
@@ -1142,14 +1141,13 @@ class TestArticleSorting:
         await test_session.commit()
 
         try:
-            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
-                response = await client.get("/api/v1/articles?sort_by=created_at&sort_order=asc&limit=50")
-                assert response.status_code == 200
-                data = response.json()
-                assert data["success"] is True
-                topics = [item["topic"] for item in data["data"]]
-                assert topics.index("A article - oldest") < topics.index("M article - middle")
-                assert topics.index("M article - middle") < topics.index("Z article - latest")
+            response = await client.get("/api/v1/articles?sort_by=created_at&sort_order=asc&limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert topics.index("A article - oldest") < topics.index("M article - middle")
+            assert topics.index("M article - middle") < topics.index("Z article - latest")
         finally:
             for aid in [id1, id2, id3]:
                 await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
@@ -1189,13 +1187,128 @@ class TestArticleSorting:
                 await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
             await test_session.commit()
 
+    @pytest.mark.asyncio
+    async def test_sort_by_total_tokens_asc(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+        id3 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, token_usage)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1, :tu1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1, :tu2),
+                       (:id3, :t3, 'manual', 'draft', 'local', 1, :tu3)
+            """),
+            {
+                "id1": id1, "t1": "High tokens", "tu1": '{"gen": {"input": 500, "output": 500}}',
+                "id2": id2, "t2": "Low tokens", "tu2": '{"gen": {"input": 50, "output": 50}}',
+                "id3": id3, "t3": "Medium tokens", "tu3": '{"gen": {"input": 200, "output": 200}}',
+            },
+        )
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?sort_by=total_tokens&sort_order=asc&limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert topics.index("Low tokens") < topics.index("Medium tokens")
+            assert topics.index("Medium tokens") < topics.index("High tokens")
+        finally:
+            for aid in [id1, id2, id3]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_sort_by_total_tokens_desc(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        id1 = uuid4()
+        id2 = uuid4()
+
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, token_usage)
+                VALUES (:id1, :t1, 'manual', 'draft', 'local', 1, :tu1),
+                       (:id2, :t2, 'manual', 'draft', 'local', 1, :tu2)
+            """),
+            {
+                "id1": id1, "t1": "High tokens", "tu1": '{"gen": {"input": 800, "output": 200}}',
+                "id2": id2, "t2": "Low tokens", "tu2": '{"gen": {"input": 60, "output": 40}}',
+            },
+        )
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?sort_by=total_tokens&sort_order=desc&limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert topics.index("High tokens") < topics.index("Low tokens")
+        finally:
+            for aid in [id1, id2]:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_sort_by_total_tokens_pagination(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        ids = []
+        for i in range(5):
+            aid = uuid4()
+            tokens = 100 * (i + 1)  # 100, 200, 300, 400, 500
+            await test_session.execute(
+                text("""
+                    INSERT INTO articles (id, topic, mode, status, source, version, token_usage)
+                    VALUES (:id, :t, 'manual', 'draft', 'local', 1, :tu)
+                """),
+                {"id": aid, "t": f"Article number {i}", "tu": f'{{"gen": {{"input": {tokens // 2}, "output": {tokens // 2}}}}}'},
+            )
+            ids.append(aid)
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?sort_by=total_tokens&sort_order=asc&limit=2")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            page1_topics = [item["topic"] for item in data["data"]]
+            assert len(page1_topics) == 2
+            assert page1_topics == ["Article number 0", "Article number 1"]
+
+            response = await client.get("/api/v1/articles?sort_by=total_tokens&sort_order=asc&limit=2&page=2")
+            assert response.status_code == 200
+            data = response.json()
+            page2_topics = [item["topic"] for item in data["data"]]
+            assert len(page2_topics) == 2
+            assert page2_topics == ["Article number 2", "Article number 3"]
+
+            response = await client.get("/api/v1/articles?sort_by=total_tokens&sort_order=asc&limit=2&page=3")
+            assert response.status_code == 200
+            data = response.json()
+            page3_topics = [item["topic"] for item in data["data"]]
+            assert len(page3_topics) == 1
+            assert page3_topics == ["Article number 4"]
+        finally:
+            for aid in ids:
+                await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
 
 class TestArticleSearch:
     """GET /api/v1/articles with search param."""
 
     @pytest.mark.asyncio
     async def test_search_by_topic(self, client: AsyncClient, test_session: AsyncSession):
-        from unittest.mock import AsyncMock, patch
         from uuid import uuid4
         from sqlalchemy import text
 
@@ -1213,14 +1326,13 @@ class TestArticleSearch:
         await test_session.commit()
 
         try:
-            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
-                response = await client.get("/api/v1/articles?search=rag")
-                assert response.status_code == 200
-                data = response.json()
-                assert data["success"] is True
-                topics = [item["topic"] for item in data["data"]]
-                assert "RAG technology deep dive" in topics
-                assert "Machine learning basics" not in topics
+            response = await client.get("/api/v1/articles?search=rag")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert "RAG technology deep dive" in topics
+            assert "Machine learning basics" not in topics
         finally:
             for aid in [id1, id2]:
                 await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
@@ -1228,7 +1340,6 @@ class TestArticleSearch:
 
     @pytest.mark.asyncio
     async def test_search_outline_title(self, client: AsyncClient, test_session: AsyncSession):
-        from unittest.mock import AsyncMock, patch
         from uuid import uuid4
         from sqlalchemy import text
 
@@ -1249,14 +1360,13 @@ class TestArticleSearch:
         await test_session.commit()
 
         try:
-            with patch('app.routers.articles.generate_outline', new_callable=AsyncMock):
-                response = await client.get("/api/v1/articles?search=rag")
-                assert response.status_code == 200
-                data = response.json()
-                assert data["success"] is True
-                topics = [item["topic"] for item in data["data"]]
-                assert "some user input topic" in topics
-                assert "another topic" not in topics
+            response = await client.get("/api/v1/articles?search=rag")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            topics = [item["topic"] for item in data["data"]]
+            assert "some user input topic" in topics
+            assert "another topic" not in topics
         finally:
             for aid in [id1, id2]:
                 await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
@@ -1278,3 +1388,61 @@ class TestArticleSearch:
         data = response.json()
         assert data["success"] is True
         assert len(data["data"]) == 0
+
+
+class TestArticleDisplayTitleInApi:
+    """displayTitle field appears in GET /api/v1/articles response."""
+
+    @pytest.mark.asyncio
+    async def test_display_title_from_outline(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        aid = uuid4()
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version, outline)
+                VALUES (:id, :t, 'manual', 'draft', 'local', 1, :o)
+            """),
+            {"id": aid, "t": "user input topic", "o": '{"title": "WP Title From Outline"}'},
+        )
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            items = [item for item in data["data"] if item["id"] == str(aid)]
+            assert len(items) == 1
+            assert items[0]["displayTitle"] == "WP Title From Outline"
+        finally:
+            await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_display_title_falls_back_to_topic(self, client: AsyncClient, test_session: AsyncSession):
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        aid = uuid4()
+        await test_session.execute(
+            text("""
+                INSERT INTO articles (id, topic, mode, status, source, version)
+                VALUES (:id, :t, 'manual', 'draft', 'local', 1)
+            """),
+            {"id": aid, "t": "Fallback topic title"},
+        )
+        await test_session.commit()
+
+        try:
+            response = await client.get("/api/v1/articles?limit=50")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            items = [item for item in data["data"] if item["id"] == str(aid)]
+            assert len(items) == 1
+            assert items[0]["displayTitle"] == "Fallback topic title"
+        finally:
+            await test_session.execute(text("DELETE FROM articles WHERE id = :id"), {"id": aid})
+            await test_session.commit()

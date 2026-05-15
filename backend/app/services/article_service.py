@@ -93,16 +93,24 @@ async def list_articles(
     order_col = sort_cols.get(sort_by, Article.created_at)
 
     offset = (page - 1) * limit
-    query = query.order_by(order_fn(order_col)).offset(offset).limit(limit)
-    result = await db.execute(query)
-    articles = list(result.scalars().all())
 
     if sort_by == "total_tokens":
+        # Fetch all matching rows, sort by tokens in Python, then paginate.
+        # This does not scale beyond ~10K rows — consider a dedicated column.
+        all_result = await db.execute(query)
+        all_articles = list(all_result.scalars().all())
+
         def _tokens(a: Article) -> int:
             if not a.token_usage:
                 return 0
             return sum(stage.get("input", 0) + stage.get("output", 0) for stage in a.token_usage.values())
-        articles.sort(key=_tokens, reverse=(sort_order == "desc"))
+
+        all_articles.sort(key=_tokens, reverse=(sort_order == "desc"))
+        articles = all_articles[offset:offset + limit]
+    else:
+        query = query.order_by(order_fn(order_col)).offset(offset).limit(limit)
+        result = await db.execute(query)
+        articles = list(result.scalars().all())
 
     return articles, total
 
