@@ -72,9 +72,15 @@ async def list_articles(
     limit: int = 20,
     status: str | None = None,
     source: str | None = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+    search: str | None = None,
     db: AsyncSession = Depends(get_session),
 ):
-    articles, total = await svc.list_articles(db, page=page, limit=limit, status=status, source=source)
+    articles, total = await svc.list_articles(
+        db, page=page, limit=limit, status=status, source=source,
+        sort_by=sort_by, sort_order=sort_order, search=search,
+    )
     return {
         "success": True,
         "data": [svc.article_to_list_item(a) for a in articles],

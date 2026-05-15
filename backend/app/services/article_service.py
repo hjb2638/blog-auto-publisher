@@ -1,7 +1,7 @@
 from uuid import UUID
 
 import httpx
-from sqlalchemy import desc, func, select
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.article import Article
@@ -67,6 +67,7 @@ async def get_article(db: AsyncSession, article_id: UUID) -> Article | None:
 
 async def list_articles(
     db: AsyncSession, page: int = 1, limit: int = 20, status: str | None = None, source: str | None = None,
+    sort_by: str = "created_at", sort_order: str = "desc", search: str | None = None,
 ) -> tuple[list[Article], int]:
     query = select(Article)
     count_query = select(func.count(Article.id))
@@ -78,13 +79,30 @@ async def list_articles(
         query = query.where(Article.source == source)
         count_query = count_query.where(Article.source == source)
 
+    if search:
+        pattern = f"%{search}%"
+        condition = Article.outline["title"].astext.ilike(pattern) | Article.topic.ilike(pattern)
+        query = query.where(condition)
+        count_query = count_query.where(condition)
+
     total_res = await db.execute(count_query)
     total = total_res.scalar() or 0
 
+    order_fn = asc if sort_order == "asc" else desc
+    sort_cols = {"created_at": Article.created_at, "updated_at": Article.updated_at}
+    order_col = sort_cols.get(sort_by, Article.created_at)
+
     offset = (page - 1) * limit
-    query = query.order_by(desc(Article.created_at)).offset(offset).limit(limit)
+    query = query.order_by(order_fn(order_col)).offset(offset).limit(limit)
     result = await db.execute(query)
     articles = list(result.scalars().all())
+
+    if sort_by == "total_tokens":
+        def _tokens(a: Article) -> int:
+            if not a.token_usage:
+                return 0
+            return sum(stage.get("input", 0) + stage.get("output", 0) for stage in a.token_usage.values())
+        articles.sort(key=_tokens, reverse=(sort_order == "desc"))
 
     return articles, total
 
