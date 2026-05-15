@@ -252,9 +252,14 @@ def article_to_list_item(a: Article) -> ArticleListItem:
             stage.get("input", 0) + stage.get("output", 0)
             for stage in a.token_usage.values()
         )
+    display_title = a.topic[:80]
+    if a.outline and isinstance(a.outline, dict) and a.outline.get("title"):
+        display_title = a.outline["title"][:80] if len(a.outline["title"]) > 80 else a.outline["title"]
+
     return ArticleListItem(
         id=a.id,
         topic=a.topic[:80] if len(a.topic) > 80 else a.topic,
+        display_title=display_title,
         status=ArticleStatus(a.status),
         mode=a.mode,
         wp_post_url=a.wp_post_url,

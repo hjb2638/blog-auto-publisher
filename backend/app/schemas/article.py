@@ -96,6 +96,7 @@ class ArticleListItem(CamelModel):
     topic: str
     status: ArticleStatus
     mode: ArticleMode
+    display_title: str
     wp_post_url: str | None = None
     total_tokens: int | None = None
     source: str = "local"
