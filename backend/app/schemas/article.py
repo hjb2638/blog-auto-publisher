@@ -199,6 +199,7 @@ class WPTag(CamelModel):
 class BatchActionRequest(CamelModel):
     ids: list[UUID]
     action: str
+    delete_wp: bool = True
 
 
 class UpdateWpRequest(CamelModel):

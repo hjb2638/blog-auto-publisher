@@ -21,6 +21,7 @@ export default function ArticleManagementPage() {
   const [source, setSource] = useState<string | undefined>();
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchActionType, setBatchActionType] = useState<string>('');
+  const [batchDeleteWp, setBatchDeleteWp] = useState(true);
   const limit = 20;
 
   const { data, isLoading } = useArticlesPaginated(page, limit, status, source);
@@ -91,6 +92,17 @@ export default function ArticleManagementPage() {
               {selectedCount} selected
             </span>
             <div className="flex items-center gap-2">
+              {selectedArticles.every((a) => a.status === 'published') && (
+                <button
+                  onClick={() => {
+                    setBatchActionType('unpublish');
+                    setShowBatchConfirm(true);
+                  }}
+                  className="px-3 py-1.5 text-sm text-yellow-700 border border-yellow-300 bg-yellow-50 rounded-md hover:bg-yellow-100"
+                >
+                  Unpublish Selected
+                </button>
+              )}
               <button
                 onClick={() => {
                   setBatchActionType('cancel');
@@ -116,7 +128,11 @@ export default function ArticleManagementPage() {
 
       <ConfirmDialog
         open={showBatchConfirm}
-        title={batchActionType === 'delete' ? 'Batch Delete' : 'Batch Cancel'}
+        title={
+          batchActionType === 'delete' ? 'Batch Delete' :
+          batchActionType === 'unpublish' ? 'Batch Unpublish' :
+          'Batch Cancel'
+        }
         message={
           batchActionType === 'delete'
             ? `Delete ${selectedCount} article${selectedCount > 1 ? 's' : ''}?${
@@ -124,13 +140,28 @@ export default function ArticleManagementPage() {
                   ? '\n\n' + selectedArticles.map((a) => `• ${a.topic}`).join('\n')
                   : ''
               } This action cannot be undone.`
+            : batchActionType === 'unpublish'
+            ? `Unpublish ${selectedCount} article${selectedCount > 1 ? 's' : ''} from WordPress? The articles will remain in the system as final_approved.`
             : `Cancel ${selectedCount} article${selectedCount > 1 ? 's' : ''}?`
         }
-        confirmLabel={batchActionType === 'delete' ? 'Delete' : 'Cancel'}
+        confirmLabel={
+          batchActionType === 'delete' ? 'Delete' :
+          batchActionType === 'unpublish' ? 'Unpublish' :
+          'Cancel'
+        }
         variant={batchActionType === 'delete' ? 'danger' : 'primary'}
+        checkbox={
+          batchActionType === 'delete'
+            ? { label: 'Also delete from WordPress', checked: batchDeleteWp, onChange: setBatchDeleteWp }
+            : undefined
+        }
         onConfirm={() => {
           setShowBatchConfirm(false);
-          batchMutation.mutate({ ids: Array.from(selectedIds), action: batchActionType });
+          batchMutation.mutate({
+            ids: Array.from(selectedIds),
+            action: batchActionType,
+            ...(batchActionType === 'delete' ? { deleteWp: batchDeleteWp } : {}),
+          });
         }}
         onCancel={() => setShowBatchConfirm(false)}
       />

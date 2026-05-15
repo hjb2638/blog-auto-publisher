@@ -336,8 +336,17 @@ async def batch_action(body: BatchActionRequest, db: AsyncSession = Depends(get_
                 try:
                     await svc.delete_article(
                         db, article,
+                        wordpress_service=wordpress_service if body.delete_wp else None,
+                        delete_wp=body.delete_wp,
+                    )
+                    processed += 1
+                except ValueError as e:
+                    failed.append({"id": str(article_id), "reason": str(e)})
+            elif body.action == "unpublish":
+                try:
+                    await svc.unpublish_article(
+                        db, article,
                         wordpress_service=wordpress_service,
-                        delete_wp=True,
                     )
                     processed += 1
                 except ValueError as e:

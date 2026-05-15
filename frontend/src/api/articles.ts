@@ -97,7 +97,7 @@ export async function updateWPPost(postId: number, body: Record<string, unknown>
   return data;
 }
 
-export async function batchAction(body: { ids: string[]; action: string }) {
+export async function batchAction(body: { ids: string[]; action: string; deleteWp?: boolean }) {
   const { data } = await apiClient.post<ApiEnvelope<{ processed: number; failed: { id: string; reason: string }[] }>>('/articles/batch', body);
   return data;
 }

@@ -32,6 +32,7 @@ VALID_TRANSITIONS = {
     "images_ready": {"final_approved", "image_searching", "image_keywords_ready", "cancelled"},
     "final_approved": {"publishing", "images_ready", "cancelled"},
     "publishing": {"published", "failed"},
+    "published": {"final_approved"},
     "failed": {"outline_generating", "content_generating", "image_searching", "publishing"},
 }
 
@@ -136,6 +137,28 @@ async def delete_article(
 async def cancel_article(db: AsyncSession, article: Article) -> Article:
     """Cancel an article, transitioning it to cancelled state."""
     return await update_status(db, article, "cancelled")
+
+
+async def unpublish_article(
+    db: AsyncSession,
+    article: Article,
+    wordpress_service=None,
+) -> Article:
+    """Unpublish a published article: set WP post to draft + article to final_approved."""
+    if article.status != "published":
+        raise ValueError("Can only unpublish published articles")
+    if not article.wp_post_id:
+        raise ValueError(f"Article {article.id} has no WordPress post ID")
+
+    if wordpress_service:
+        try:
+            await wordpress_service.update_post(article.wp_post_id, status="draft")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                raise ValueError("WordPress auth failed")
+            raise
+
+    return await update_status(db, article, "final_approved")
 
 
 async def update_outline(
