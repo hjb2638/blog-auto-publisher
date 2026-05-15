@@ -1,7 +1,7 @@
 import apiClient from './client';
 import type { ApiEnvelope, Article, ArticleListItem, CreateArticleRequest, PublishRequest, UpdateWpRequest, WPCategory, WPTag, ImagePlan } from '../types';
 
-export async function fetchArticles(params?: { page?: number; limit?: number; status?: string; source?: string }) {
+export async function fetchArticles(params?: { page?: number; limit?: number; status?: string; source?: string; sort_by?: string; sort_order?: string; search?: string }) {
   const { data } = await apiClient.get<ApiEnvelope<ArticleListItem[]>>('/articles', { params });
   return data;
 }

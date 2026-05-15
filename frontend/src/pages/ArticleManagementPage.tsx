@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useArticlesPaginated } from '../hooks/useArticlesPaginated';
@@ -22,9 +22,21 @@ export default function ArticleManagementPage() {
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchActionType, setBatchActionType] = useState<string>('');
   const [batchDeleteWp, setBatchDeleteWp] = useState(true);
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const limit = 20;
 
-  const { data, isLoading } = useArticlesPaginated(page, limit, status, source);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const { data, isLoading } = useArticlesPaginated(page, limit, status, source, sortBy, sortOrder, search);
   const { selectedIds, toggle, selectAll, clearSelection, isAllSelected } = useArticleSelection();
 
   const articles = data?.data || [];
@@ -69,6 +81,37 @@ export default function ArticleManagementPage() {
             {label}
           </button>
         ))}
+      </div>
+
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search articles..."
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <select
+          value={`${sortBy}|${sortOrder}`}
+          onChange={(e) => {
+            const [by, order] = e.target.value.split('|');
+            setSortBy(by);
+            setSortOrder(order);
+            setPage(1);
+          }}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="created_at|desc">Newest First</option>
+          <option value="created_at|asc">Oldest First</option>
+          <option value="updated_at|desc">Recently Updated</option>
+          <option value="total_tokens|desc">Most Tokens</option>
+          <option value="total_tokens|asc">Least Tokens</option>
+        </select>
       </div>
 
       <ArticleTable
